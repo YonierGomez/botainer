@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Botainer - Gestiona Docker desde Telegram</title>
+    <meta name="description" content="Bot de Telegram para gestionar Docker desde tu móvil. Más de 25 comandos, notificaciones en tiempo real, y una interfaz intuitiva.">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        header {
+            padding: 60px 0;
+            text-align: center;
+            color: white;
+        }
+        
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+        
+        .subtitle {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            margin-bottom: 40px;
+        }
+        
+        .cta-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 600;
+        }
+        
+        .btn-primary {
+            background: white;
+            color: #667eea;
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 2px solid white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        .features {
+            background: white;
+            padding: 80px 0;
+        }
+        
+        .features h2 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 60px;
+            color: #667eea;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+        }
+        
+        .feature-card {
+            padding: 30px;
+            border-radius: 15px;
+            background: #f8f9fa;
+            transition: transform 0.2s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+        
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        
+        .commands {
+            background: #f8f9fa;
+            padding: 80px 0;
+        }
+        
+        .commands h2 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 60px;
+            color: #667eea;
+        }
+        
+        .commands-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .command-item {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .command-item code {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        
+        .install {
+            background: white;
+            padding: 80px 0;
+        }
+        
+        .install h2 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 40px;
+            color: #667eea;
+        }
+        
+        .install-steps {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .step {
+            background: #f8f9fa;
+            padding: 30px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+        }
+        
+        .step h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+        }
+        
+        footer {
+            background: #2d3748;
+            color: white;
+            text-align: center;
+            padding: 40px 0;
+        }
+        
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .footer-links a {
+            color: white;
+            text-decoration: none;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        
+        .footer-links a:hover {
+            opacity: 1;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .subtitle {
+                font-size: 1.1rem;
+            }
+            
+            .features h2, .commands h2, .install h2 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">🐳</div>
+            <h1>Botainer</h1>
+            <p class="subtitle">Gestiona Docker desde Telegram con más de 25 comandos</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/YonierGomez/botainer" class="btn btn-primary">⭐ Ver en GitHub</a>
+                <a href="#install" class="btn btn-secondary">🚀 Instalar Ahora</a>
+            </div>
+        </div>
+    </header>
+
+    <section class="features">
+        <div class="container">
+            <h2>✨ Características Principales</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Súper Rápido</h3>
+                    <p>Escrito en Go para respuestas instantáneas. Gestiona tus contenedores sin esperas.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Monitoreo en Tiempo Real</h3>
+                    <p>CPU, RAM, healthchecks y notificaciones automáticas de eventos Docker.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🐙</div>
+                    <h3>Docker Compose</h3>
+                    <p>Gestión completa de proyectos Compose desde tu móvil.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Búsqueda Universal</h3>
+                    <p>Busca contenedores, imágenes y volúmenes al instante.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">⭐</div>
+                    <h3>Sistema de Favoritos</h3>
+                    <p>Acceso rápido a tus contenedores más usados.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🔐</div>
+                    <h3>Seguro</h3>
+                    <p>Autenticación por whitelist y control total de acceso.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Interfaz Intuitiva</h3>
+                    <p>Iconos específicos para 40+ servicios y botones interactivos.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🛠️</div>
+                    <h3>Crear Contenedores</h3>
+                    <p>Asistente paso a paso para crear contenedores con Docker Run o Compose.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🔧</div>
+                    <h3>Diagnóstico Automático</h3>
+                    <p>Detecta problemas y te alerta sobre contenedores no saludables.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="commands">
+        <div class="container">
+            <h2>📋 Comandos Disponibles</h2>
+            <div class="commands-grid">
+                <div class="command-item">
+                    <code>/start</code>
+                    <p>Menú principal con botones</p>
+                </div>
+                <div class="command-item">
+                    <code>/create</code>
+                    <p>Crear nuevo contenedor</p>
+                </div>
+                <div class="command-item">
+                    <code>/ps</code>
+                    <p>Contenedores con CPU/RAM</p>
+                </div>
+                <div class="command-item">
+                    <code>/stats</code>
+                    <p>Dashboard del sistema</p>
+                </div>
+                <div class="command-item">
+                    <code>/compose</code>
+                    <p>Gestionar proyectos Compose</p>
+                </div>
+                <div class="command-item">
+                    <code>/search</code>
+                    <p>Buscar recursos</p>
+                </div>
+                <div class="command-item">
+                    <code>/logs</code>
+                    <p>Ver logs con filtros</p>
+                </div>
+                <div class="command-item">
+                    <code>/logfile</code>
+                    <p>Descargar logs como .log</p>
+                </div>
+                <div class="command-item">
+                    <code>/inspect</code>
+                    <p>Inspeccionar recursos</p>
+                </div>
+                <div class="command-item">
+                    <code>/favorites</code>
+                    <p>Ver favoritos</p>
+                </div>
+                <div class="command-item">
+                    <code>/diagnose</code>
+                    <p>Diagnóstico del sistema</p>
+                </div>
+                <div class="command-item">
+                    <code>/history</code>
+                    <p>Historial de comandos</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="install" id="install">
+        <div class="container">
+            <h2>🚀 Instalación Rápida</h2>
+            <div class="install-steps">
+                <div class="step">
+                    <h3>1. Clonar el repositorio</h3>
+                    <div class="code-block">git clone https://github.com/YonierGomez/botainer.git
+cd botainer</div>
+                </div>
+                
+                <div class="step">
+                    <h3>2. Configurar variables de entorno</h3>
+                    <div class="code-block">cp .env.example .env
+nano .env</div>
+                    <p>Configura tu token de Telegram de <a href="https://t.me/botfather" target="_blank">@BotFather</a></p>
+                </div>
+                
+                <div class="step">
+                    <h3>3. Iniciar el bot</h3>
+                    <div class="code-block">docker compose up -d --build</div>
+                </div>
+                
+                <div class="step">
+                    <h3>4. ¡Listo! 🎉</h3>
+                    <p>Abre Telegram y busca tu bot. Envía <code>/start</code> para comenzar.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 Botainer - Gestiona Docker desde Telegram</p>
+            <div class="footer-links">
+                <a href="https://github.com/YonierGomez/botainer">GitHub</a>
+                <a href="https://github.com/YonierGomez/botainer/issues">Issues</a>
+                <a href="https://github.com/YonierGomez/botainer/blob/main/README.md">Documentación</a>
+                <a href="https://t.me/botfather">Crear Bot</a>
+            </div>
+            <p style="margin-top: 20px; opacity: 0.7;">Hecho con ❤️ para la comunidad Docker</p>
+        </div>
+    </footer>
+</body>
+</html>

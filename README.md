@@ -6,7 +6,378 @@
 ![License](https://img.shields.io/github/license/YonierGomez/botainer?style=flat-square)
 ![Last commit](https://img.shields.io/github/last-commit/YonierGomez/botainer?style=flat-square)
 
-Bot de Telegram para gestionar Docker Compose desde tu móvil. Controla tus contenedores, actualiza imágenes, revisa logs y más, todo desde la comodidad de Telegram.
+Bot completo de Telegram para gestionar Docker desde tu móvil. Más de 25 comandos, notificaciones en tiempo real, y una interfaz intuitiva con iconos y botones.
+
+🌐 **[Ver Landing Page](https://yoniergomez.github.io/botainer/)**
+
+## ✨ Características Principales
+
+- 🚀 **Rápido** - Escrito en Go, respuestas instantáneas
+- 📊 **Monitoreo en tiempo real** - CPU, RAM, healthchecks
+- 🔔 **Notificaciones automáticas** - Eventos y actualizaciones
+- 🐳 **Docker Compose** - Gestión completa de proyectos
+- 🔍 **Búsqueda universal** - Contenedores, imágenes, volúmenes
+- ⭐ **Favoritos** - Acceso rápido a contenedores frecuentes
+- 🔐 **Seguro** - Autenticación por whitelist
+- 🎨 **Interfaz bonita** - Iconos específicos, grid de 2 columnas
+- 📜 **Historial** - Registro de comandos ejecutados
+- 🔧 **Diagnóstico** - Detección automática de problemas
+- 🛠️ **Crear contenedores** - Asistente paso a paso para Docker Run y Compose
+- 💾 **Descargar logs** - Exporta logs como archivos .log
+- ❌ **Chat limpio** - Botón de cerrar en todos los mensajes
+
+Ver [FEATURES.md](FEATURES.md) para lista completa de funcionalidades.
+
+## 📋 Requisitos
+
+- Docker y Docker Compose instalados
+- Token de bot de Telegram (obtenerlo de [@BotFather](https://t.me/botfather))
+- Servidor Linux (Ubuntu, Debian, etc.)
+
+## 🚀 Instalación Rápida
+
+### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/YonierGomez/botainer.git
+cd botainer
+```
+
+### 2. Configurar variables de entorno
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Configura al menos el token:
+
+```env
+TELEGRAM_BOT_TOKEN=tu_token_aqui
+NOTIFY_CHAT_ID=tu_chat_id  # Opcional
+ALLOWED_USERS=123456,789012  # Opcional
+```
+
+### 3. Iniciar el bot
+
+```bash
+docker compose up -d --build
+```
+
+### 4. Verificar que funciona
+
+```bash
+docker logs -f botainer
+```
+
+Deberías ver: `Bot iniciado: @tu_bot`
+
+## 🔑 Obtener Token de Telegram
+
+1. Abre Telegram y busca [@BotFather](https://t.me/botfather)
+2. Envía `/newbot`
+3. Sigue las instrucciones para nombrar tu bot
+4. Copia el token que te proporciona
+5. Pégalo en `.env`
+
+## 📱 Uso Básico
+
+### Comandos Principales
+
+```
+/start       - Menú principal con botones
+/create      - Crear nuevo contenedor (Docker Run o Compose)
+/ps          - Contenedores corriendo (CPU/RAM)
+/stats       - Dashboard del sistema
+/compose     - Gestionar proyectos Docker Compose
+/search      - Buscar contenedores/imágenes
+/diagnose    - Diagnóstico automático
+```
+
+### Gestión de Contenedores
+
+```
+/restart     - Reiniciar contenedor
+/stop        - Detener contenedor
+/pause       - Pausar contenedor
+/logs        - Ver logs (con filtros)
+/logfile     - Descargar logs como archivo .log
+/inspect     - Inspeccionar recursos
+/exec        - Ejecutar comandos
+```
+
+### Recursos
+
+```
+/images      - Listar imágenes
+/volumes     - Listar volúmenes
+/networks    - Listar redes
+/prune       - Limpiar recursos no usados
+/updateall   - Actualizar todas las imágenes
+```
+
+### Utilidades
+
+```
+/favorites   - Ver favoritos
+/addfav      - Agregar a favoritos
+/env         - Ver variables de entorno
+/history     - Historial de comandos
+```
+
+## 🔔 Notificaciones Automáticas
+
+Configura `NOTIFY_CHAT_ID` en `.env` para recibir notificaciones de:
+
+- Eventos de contenedores (start, stop, restart, die)
+- Nuevas versiones de imágenes disponibles
+- Con botones para actualizar directamente
+
+Obtén tu Chat ID de [@userinfobot](https://t.me/userinfobot)
+
+## 🔐 Seguridad
+
+### Autenticación por Whitelist
+
+Limita el acceso solo a usuarios autorizados:
+
+```env
+ALLOWED_USERS=123456789,987654321
+```
+
+Obtén tu User ID de [@userinfobot](https://t.me/userinfobot)
+
+### Recomendaciones
+
+- ✅ Usa whitelist en producción
+- ✅ Rota el token periódicamente
+- ✅ Ejecuta con usuario sin privilegios
+- ✅ Usa VPN para acceso remoto
+- ✅ Monitorea los logs regularmente
+- ❌ No expongas el token públicamente
+- ❌ No uses el bot en redes públicas sin VPN
+
+## 🐳 Docker Compose
+
+El bot se ejecuta como contenedor con acceso al socket de Docker:
+
+```yaml
+services:
+  botainer:
+    build: .
+    container_name: botainer
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/ubuntu:/workspace
+    env_file:
+      - .env
+```
+
+## 🎨 Iconos de Servicios
+
+El bot reconoce automáticamente más de 40 servicios:
+
+- 🐘 PostgreSQL
+- 🐬 MySQL/MariaDB
+- 🍃 MongoDB
+- 🔴 Redis
+- 🟢 Nginx
+- 🐍 Python
+- ☁️ Nextcloud
+- 🎬 Plex/Radarr
+- 📺 Sonarr/Jellyfin
+- 🔒 Wireguard
+- 🛡️ Pi-hole
+- Y muchos más...
+
+## 📊 Ejemplos de Uso
+
+### Crear un contenedor
+
+```
+/create
+→ Seleccionar Docker Run o Compose
+→ Seguir el asistente paso a paso
+→ Obtener comando o YAML formateado
+```
+
+El asistente te pregunta:
+- Imagen a usar
+- Nombre del contenedor
+- Puertos a exponer
+- Volúmenes a montar
+- Variables de entorno
+
+**Resultado Docker Run:**
+```bash
+docker run -d --name mi-nginx -p 80:80 -v /data:/usr/share/nginx/html nginx:latest
+```
+
+**Resultado Docker Compose:**
+```yaml
+services:
+  web:
+    image: nginx:latest
+    container_name: web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - /data:/usr/share/nginx/html
+```
+
+### Monitorear contenedores
+
+```
+/ps
+```
+
+Muestra cada contenedor con:
+- Icono específico
+- Estado y uptime
+- CPU y RAM en tiempo real
+- Botones de acción
+
+### Gestionar proyecto Compose
+
+```
+/compose
+→ Seleccionar proyecto
+→ Up / Down / Restart / PS / Pull
+```
+
+### Buscar recursos
+
+```
+/search nginx
+```
+
+Busca en contenedores, imágenes y volúmenes.
+
+### Diagnóstico rápido
+
+```
+/diagnose
+```
+
+Detecta:
+- Contenedores detenidos
+- Contenedores unhealthy
+- Uso alto de CPU
+- Imágenes sin usar
+
+## 🛠️ Desarrollo
+
+### Estructura del Proyecto
+
+```
+botainer/
+├── main.go              # Código principal del bot
+├── Dockerfile           # Imagen del bot
+├── docker-compose.yml   # Configuración de despliegue
+├── .env                 # Variables de entorno
+├── .env.example         # Plantilla de configuración
+├── README.md            # Este archivo
+├── FEATURES.md          # Documentación completa
+└── bot-commands.txt     # Lista de comandos
+```
+
+### Compilar localmente
+
+```bash
+go build -o botainer main.go
+./botainer
+```
+
+### Logs
+
+```bash
+# Ver logs en tiempo real
+docker logs -f botainer
+
+# Últimas 50 líneas
+docker logs --tail 50 botainer
+
+# Buscar errores
+docker logs botainer 2>&1 | grep -i error
+```
+
+## 🔄 Actualización
+
+```bash
+cd botainer
+git pull
+docker compose up -d --build
+```
+
+El bot actualiza automáticamente su lista de comandos al iniciar.
+
+## 🐛 Solución de Problemas
+
+### El bot no responde
+
+```bash
+# Verificar que está corriendo
+docker ps | grep botainer
+
+# Ver logs
+docker logs --tail 50 botainer
+
+# Reiniciar
+docker compose restart
+```
+
+### Error de permisos de Docker
+
+```bash
+# Agregar usuario al grupo docker
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### Comandos no aparecen en Telegram
+
+Los comandos se configuran automáticamente. Si no aparecen:
+1. Reinicia el bot: `docker compose restart`
+2. Espera 1-2 minutos
+3. Escribe `/` en el chat para ver la lista
+
+## 📈 Rendimiento
+
+- **Imagen Docker**: ~100MB
+- **Uso de RAM**: ~20-30MB
+- **Tiempo de respuesta**: <1 segundo
+- **Lenguaje**: Go (compilado, muy rápido)
+- **Concurrencia**: Soporta múltiples usuarios simultáneos
+
+## 🤝 Contribuciones
+
+Las contribuciones son bienvenidas:
+
+1. Fork el proyecto
+2. Crea una rama (`git checkout -b feature/nueva-funcionalidad`)
+3. Commit tus cambios (`git commit -m 'feat: agregar X'`)
+4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
+5. Abre un Pull Request
+
+## 📄 Licencia
+
+Este proyecto está bajo la licencia MIT. Consulta el archivo `LICENSE` para más detalles.
+
+## 📞 Soporte
+
+- 🐛 [Issues](https://github.com/YonierGomez/botainer/issues)
+- 💬 [Discussions](https://github.com/YonierGomez/botainer/discussions)
+- 📧 Email: [tu-email]
+
+## ⭐ Agradecimientos
+
+Si te gusta el proyecto, dale una estrella ⭐ en GitHub!
+
+---
+
+Hecho con ❤️ para la comunidad Docker
 
 ## 📋 Requisitos
 

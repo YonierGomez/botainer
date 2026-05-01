@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  botainer:
+    build: .
+    container_name: botainer
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - COMPOSE_PROJECT=${COMPOSE_PROJECT:-work_pro}
+      - COMPOSE_FILE=${COMPOSE_FILE:-docker-compose.yml}
+      - WORKSPACE=/workspace
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${COMPOSE_PATH:-/home/ubuntu}:/workspace:ro
+    working_dir: /workspace
+    network_mode: host
