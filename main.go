@@ -549,9 +549,6 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			go handleNetworks(chatID)
 		case "updateall":
 			go handleUpdateAll(chatID)
-		case "notify":
-			notifyChatID = chatID
-			sendMessageWithClose(chatID, "✅ Notificaciones activadas")
 		}
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
@@ -1181,17 +1178,22 @@ func monitorEvents() {
 			
 			var msg string
 			icon := getIcon(name)
+			now := time.Now().Format("02/01 15:04:05")
 			switch action {
 			case "start":
-				msg = fmt.Sprintf("▶️ %s *%s* iniciado", icon, name)
+				msg = fmt.Sprintf("🟢 *Contenedor iniciado*\n%s `%s`\n🕐 %s", icon, name, now)
 			case "stop":
-				msg = fmt.Sprintf("⏸️ %s *%s* detenido", icon, name)
+				msg = fmt.Sprintf("🔴 *Contenedor detenido*\n%s `%s`\n🕐 %s", icon, name, now)
 			case "die":
-				msg = fmt.Sprintf("💀 %s *%s* murió", icon, name)
+				msg = fmt.Sprintf("💥 *Contenedor caído*\n%s `%s`\n⚠️ Salió inesperadamente\n🕐 %s", icon, name, now)
 			case "restart":
-				msg = fmt.Sprintf("🔄 %s *%s* reiniciado", icon, name)
+				msg = fmt.Sprintf("🔄 *Contenedor reiniciado*\n%s `%s`\n🕐 %s", icon, name, now)
 			case "destroy":
-				msg = fmt.Sprintf("🗑️ %s *%s* eliminado", icon, name)
+				msg = fmt.Sprintf("🗑️ *Contenedor eliminado*\n%s `%s`\n🕐 %s", icon, name, now)
+			case "pause":
+				msg = fmt.Sprintf("⏸️ *Contenedor pausado*\n%s `%s`\n🕐 %s", icon, name, now)
+			case "unpause":
+				msg = fmt.Sprintf("▶️ *Contenedor reanudado*\n%s `%s`\n🕐 %s", icon, name, now)
 			}
 			
 			if msg != "" {
@@ -1471,12 +1473,6 @@ func main() {
 		log.Println("Bot commands configured successfully")
 	}
 
-	// Get notify chat ID from env
-	if chatIDStr := os.Getenv("NOTIFY_CHAT_ID"); chatIDStr != "" {
-		fmt.Sscanf(chatIDStr, "%d", &notifyChatID)
-		log.Printf("Notificaciones activadas para chat: %d", notifyChatID)
-	}
-
 	go monitorEvents()
 	go checkUpdates()
 	go monitorResourceAlerts()
@@ -1516,6 +1512,7 @@ func main() {
 			
 			chatID := update.Message.Chat.ID
 			userID := update.Message.From.ID
+			notifyChatID = chatID
 			
 			// Delete the command message to keep chat clean
 			deleteMsg := tgbotapi.NewDeleteMessage(chatID, update.Message.MessageID)

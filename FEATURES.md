@@ -166,12 +166,16 @@ Detecta y reporta:
 ## 🔔 Notificaciones Automáticas
 
 ### Eventos en Tiempo Real
-Configura `NOTIFY_CHAT_ID` en `.env` para recibir:
-- ▶️ Contenedor iniciado
-- ⏸️ Contenedor detenido
-- 💀 Contenedor murió (crash)
+Las notificaciones se activan automáticamente al enviar el primer mensaje al bot. No requiere configuración adicional.
+
+- 🟢 Contenedor iniciado
+- 🔴 Contenedor detenido
+- 💥 Contenedor caído inesperadamente
 - 🔄 Contenedor reiniciado
+- ⏸️ Contenedor pausado / ▶️ reanudado
 - 🗑️ Contenedor eliminado
+
+Cada notificación incluye el icono del servicio, nombre del contenedor y hora del evento.
 
 ### Detección de Actualizaciones
 - Revisa cada hora si hay nuevas versiones

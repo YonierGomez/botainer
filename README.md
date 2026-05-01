@@ -54,7 +54,6 @@ Configura al menos el token:
 
 ```env
 TELEGRAM_BOT_TOKEN=tu_token_aqui
-NOTIFY_CHAT_ID=tu_chat_id  # Opcional
 ALLOWED_USERS=123456,789012  # Opcional
 ```
 
@@ -127,13 +126,18 @@ Deberías ver: `Bot iniciado: @tu_bot`
 
 ## 🔔 Notificaciones Automáticas
 
-Configura `NOTIFY_CHAT_ID` en `.env` para recibir notificaciones de:
+Las notificaciones se activan automáticamente al enviar cualquier mensaje al bot. No requiere configuración adicional.
 
-- Eventos de contenedores (start, stop, restart, die)
-- Nuevas versiones de imágenes disponibles
-- Con botones para actualizar directamente
+Recibirás alertas en tiempo real de:
 
-Obtén tu Chat ID de [@userinfobot](https://t.me/userinfobot)
+- 🟢 Contenedor iniciado
+- 🔴 Contenedor detenido
+- 💥 Contenedor caído inesperadamente
+- 🔄 Contenedor reiniciado
+- ⏸️ Contenedor pausado / ▶️ reanudado
+- 🗑️ Contenedor eliminado
+
+Cada notificación incluye el icono del servicio, el nombre del contenedor y la hora del evento.
 
 ## 🔐 Seguridad
 
