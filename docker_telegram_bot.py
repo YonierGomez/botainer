@@ -24,6 +24,16 @@ TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 COMPOSE_PROJECT = os.getenv('COMPOSE_PROJECT', 'work_pro')
 COMPOSE_FILE = os.getenv('COMPOSE_FILE', 'docker-compose.yml')
 
+def detect_compose_file():
+    """Auto-detect compose file if not specified"""
+    possible_files = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
+    for f in possible_files:
+        if os.path.exists(f):
+            return f
+    return COMPOSE_FILE
+
+COMPOSE_FILE = detect_compose_file() if COMPOSE_FILE == 'docker-compose.yml' else COMPOSE_FILE
+
 def run_cmd(cmd):
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
@@ -94,6 +104,11 @@ async def ps(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = run_cmd(f'docker compose -p {COMPOSE_PROJECT} ps -a')
     await update.message.reply_text(result, parse_mode='Markdown')
 
+async def running(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all running containers on the server"""
+    result = run_cmd('docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"')
+    await update.message.reply_text(f"🐳 Contenedores corriendo:\n{result}", parse_mode='Markdown')
+
 async def exec_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Uso: /exec <comando>")
@@ -115,6 +130,7 @@ def main():
     app.add_handler(CommandHandler("logs", logs))
     app.add_handler(CommandHandler("list", list_services))
     app.add_handler(CommandHandler("ps", ps))
+    app.add_handler(CommandHandler("running", running))
     app.add_handler(CommandHandler("exec", exec_cmd))
     app.add_handler(CallbackQueryHandler(button))
     

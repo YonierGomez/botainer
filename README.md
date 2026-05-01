@@ -118,7 +118,8 @@ Una vez que el bot esté ejecutándose, abre Telegram y busca tu bot:
 - `/pull` - Descargar nuevas versiones de imágenes
 - `/up` - Iniciar servicios
 - `/list` - Listar todos los servicios definidos en el compose
-- `/ps` - Ver estado de todos los contenedores
+- `/ps` - Ver estado de todos los contenedores del proyecto
+- `/running` - Ver TODOS los contenedores corriendo en el servidor
 - `/restart [servicio]` - Reiniciar todos los servicios o uno específico
 - `/logs [servicio]` - Ver logs (últimas 100 líneas)
 - `/exec <comando>` - Ejecutar comando personalizado de Docker Compose
