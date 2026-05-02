@@ -1174,25 +1174,20 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = "✅ Volumen eliminado"
 		}
 	case "update_compose":
-		// target is the compose project name — find working dir and do pull + up -d
 		workDir := getComposeWorkDir(target)
 		if workDir == "" {
 			out = "❌ No se encontró el directorio del proyecto `" + target + "`"
 			break
 		}
-		_, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "pull")
-		if err == nil {
-			out2, err2 := runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "up", "-d")
-			if err2 == nil {
-				out = fmt.Sprintf("✅ Proyecto *%s* actualizado", target)
-				if out2 != "" {
-					out += "\n```\n" + out2 + "\n```"
-				}
-			} else {
-				out = "❌ Error al hacer up: " + err2.Error()
+		// up -d with --pull always pulls new images and recreates only changed services
+		out2, err2 := runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "up", "-d", "--pull", "always")
+		if err2 == nil {
+			out = fmt.Sprintf("✅ Proyecto *%s* actualizado", target)
+			if out2 != "" {
+				out += "\n```\n" + out2 + "\n```"
 			}
 		} else {
-			out = "❌ Error al hacer pull: " + err.Error()
+			out = "❌ Error: " + err2.Error()
 		}
 	case "recreate":
 		// target is a container name — pull image then restart (works for any container)
