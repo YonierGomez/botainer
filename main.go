@@ -84,27 +84,27 @@ func getStats() map[string]struct{ CPU, Mem string } {
 func handleStart(chatID int64) {
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📋 Estado (ps)", "cmd:ps"),
-			tgbotapi.NewInlineKeyboardButtonData("📊 Stats", "cmd:stats"),
+			tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 PS", "cmd:ps"),
+			tgbotapi.NewInlineKeyboardButtonData("🖥️ Stats", "cmd:stats"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📁 Compose", "cmd:compose"),
 			tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "cmd:inspect_menu"),
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🖼️ Images", "cmd:images"),
 			tgbotapi.NewInlineKeyboardButtonData("💾 Volumes", "cmd:volumes"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🌐 Networks", "cmd:networks"),
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Update All", "cmd:updateall"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar actualizaciones", "cmd:check_updates"),
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
+			tgbotapi.NewInlineKeyboardButtonData("🔧 Diagnose", "cmd:diagnose"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
@@ -496,10 +496,17 @@ func handleList(chatID int64) {
 		} else if strings.Contains(status, "Paused") {
 			dot = "🟡"
 		}
-		sb.WriteString(fmt.Sprintf("%s %s %s\n   `%s`\n   `%s`\n\n", dot, icon, name, status, image))
+		sb.WriteString(fmt.Sprintf("%s %s *%s*\n  %s\n  %s\n\n", dot, icon, name, status, image))
 	}
 
-	sendMessageWithClose(chatID, sb.String())
+	msg := tgbotapi.NewMessage(chatID, sb.String())
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	bot.Send(msg)
 }
 
 func handleGrid(chatID int64, title, action string) {
@@ -591,6 +598,10 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
 				runImageUpdateCheck()
 			}()
+		case "list":
+			go handleList(chatID)
+		case "diagnose":
+			go handleDiagnose(chatID)
 		}
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
@@ -1514,35 +1525,40 @@ func main() {
 
 	// Set bot commands automatically
 	commands := []tgbotapi.BotCommand{
+		// Estado
 		{Command: "start", Description: "Menú principal"},
-		{Command: "create", Description: "Crear nuevo contenedor"},
+		{Command: "list", Description: "Todos los contenedores con estado"},
 		{Command: "ps", Description: "Contenedores corriendo con CPU/RAM"},
-		{Command: "running", Description: "Todos los contenedores"},
-		{Command: "stats", Description: "Dashboard de recursos del sistema"},
-		{Command: "compose", Description: "Gestionar proyectos Docker Compose"},
-		{Command: "inspect", Description: "Inspeccionar recursos Docker"},
-		{Command: "exec", Description: "Ejecutar comandos en contenedores"},
-		{Command: "search", Description: "Buscar contenedores/imágenes/volúmenes"},
-		{Command: "pause", Description: "Pausar contenedor"},
-		{Command: "unpause", Description: "Reanudar contenedor pausado"},
-		{Command: "favorites", Description: "Ver contenedores favoritos"},
-		{Command: "addfav", Description: "Agregar contenedor a favoritos"},
-		{Command: "env", Description: "Ver variables de entorno"},
-		{Command: "history", Description: "Historial de comandos"},
-		{Command: "diagnose", Description: "Diagnóstico del sistema"},
-		{Command: "list", Description: "Listar todos los contenedores con estado"},
-		{Command: "checkupdates", Description: "Buscar actualizaciones de imágenes"},
-		{Command: "donate", Description: "Apoya el desarrollo del bot"},
+		{Command: "stats", Description: "Dashboard del sistema"},
+		// Gestión
+		{Command: "create", Description: "Crear nuevo contenedor"},
 		{Command: "restart", Description: "Reiniciar contenedor"},
 		{Command: "stop", Description: "Detener contenedor"},
+		{Command: "start_container", Description: "Iniciar contenedor detenido"},
+		{Command: "pause", Description: "Pausar contenedor"},
+		{Command: "unpause", Description: "Reanudar contenedor pausado"},
+		// Logs y diagnóstico
 		{Command: "logs", Description: "Ver logs de contenedor"},
 		{Command: "logfile", Description: "Descargar logs como archivo .log"},
-		{Command: "start_container", Description: "Iniciar contenedor detenido"},
+		{Command: "exec", Description: "Ejecutar comando en contenedor"},
+		{Command: "diagnose", Description: "Diagnóstico automático del sistema"},
+		// Compose y recursos
+		{Command: "compose", Description: "Gestionar proyectos Docker Compose"},
+		{Command: "inspect", Description: "Inspeccionar recursos Docker"},
 		{Command: "images", Description: "Listar imágenes"},
 		{Command: "volumes", Description: "Listar volúmenes"},
 		{Command: "networks", Description: "Listar redes"},
 		{Command: "prune", Description: "Limpiar recursos no usados"},
+		// Actualizaciones
+		{Command: "checkupdates", Description: "Buscar actualizaciones de imágenes"},
 		{Command: "updateall", Description: "Actualizar todas las imágenes"},
+		// Utilidades
+		{Command: "search", Description: "Buscar contenedores/imágenes/volúmenes"},
+		{Command: "env", Description: "Ver variables de entorno de un contenedor"},
+		{Command: "favorites", Description: "Ver contenedores favoritos"},
+		{Command: "addfav", Description: "Agregar contenedor a favoritos"},
+		{Command: "history", Description: "Historial de comandos"},
+		{Command: "donate", Description: "Apoya el desarrollo del bot"},
 	}
 	
 	cmdConfig := tgbotapi.NewSetMyCommands(commands...)
