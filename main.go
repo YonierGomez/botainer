@@ -104,6 +104,9 @@ func handleStart(chatID int64) {
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Update All", "cmd:updateall"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar actualizaciones", "cmd:check_updates"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 		),
 	)
@@ -465,6 +468,40 @@ func handleRunning(chatID int64) {
 	}
 }
 
+func handleList(chatID int64) {
+	out, err := runCmd("docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}|{{.Image}}")
+	if err != nil {
+		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		sendMessageWithClose(chatID, "No hay contenedores")
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🐳 *Contenedores*\n\n")
+	for _, line := range lines {
+		parts := strings.Split(line, "|")
+		if len(parts) < 3 {
+			continue
+		}
+		name, status, image := parts[0], parts[1], parts[2]
+		icon := getIcon(name)
+		dot := "🔴"
+		if strings.Contains(status, "Up") {
+			dot = "🟢"
+		} else if strings.Contains(status, "Paused") {
+			dot = "🟡"
+		}
+		sb.WriteString(fmt.Sprintf("%s %s %s\n   `%s`\n   `%s`\n\n", dot, icon, name, status, image))
+	}
+
+	sendMessageWithClose(chatID, sb.String())
+}
+
 func handleGrid(chatID int64, title, action string) {
 	out, err := runCmd("docker", "ps", "--format", "{{.Names}}")
 	if err != nil {
@@ -549,6 +586,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			go handleNetworks(chatID)
 		case "updateall":
 			go handleUpdateAll(chatID)
+		case "check_updates":
+			go func() {
+				sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
+				runImageUpdateCheck()
+			}()
 		}
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
@@ -1336,77 +1378,111 @@ func scheduledReports() {
 }
 
 func checkUpdates() {
+	// First check after 5 minutes, then every 6 hours
+	time.Sleep(5 * time.Minute)
 	for {
-		time.Sleep(1 * time.Hour)
-		
-		if notifyChatID == 0 {
+		if notifyChatID != 0 {
+			runImageUpdateCheck()
+		}
+		time.Sleep(6 * time.Hour)
+	}
+}
+
+func runImageUpdateCheck() {
+	out, err := runCmd("docker", "ps", "-a", "--format", "{{.Names}}|{{.Image}}")
+	if err != nil {
+		return
+	}
+
+	// Build map: image -> list of (containerName, composeProject)
+	type containerInfo struct {
+		name    string
+		project string
+	}
+	imageMap := make(map[string][]containerInfo)
+
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.Split(line, "|")
+		if len(parts) < 2 {
 			continue
 		}
-		
-		out, err := runCmd("docker", "ps", "--format", "{{.Names}}|{{.Image}}")
-		if err != nil {
+		name, image := parts[0], parts[1]
+
+		// Get compose project label
+		var project string
+		inspectOut, _ := runCmd("docker", "inspect", name)
+		var inspectData []map[string]interface{}
+		if json.Unmarshal([]byte(inspectOut), &inspectData) == nil && len(inspectData) > 0 {
+			if labels, ok := inspectData[0]["Config"].(map[string]interface{})["Labels"].(map[string]interface{}); ok {
+				if p, ok := labels["com.docker.compose.project"].(string); ok {
+					project = p
+				}
+			}
+		}
+		imageMap[image] = append(imageMap[image], containerInfo{name, project})
+	}
+
+	// Check each unique image once
+	for image, containers := range imageMap {
+		localDigest, _ := runCmd("docker", "inspect", "--format", "{{index .RepoDigests 0}}", image)
+		localDigest = strings.TrimSpace(localDigest)
+
+		runCmd("docker", "pull", image)
+
+		newDigest, _ := runCmd("docker", "inspect", "--format", "{{index .RepoDigests 0}}", image)
+		newDigest = strings.TrimSpace(newDigest)
+
+		if localDigest == "" || localDigest == newDigest {
 			continue
 		}
-		
-		for _, line := range strings.Split(out, "\n") {
-			parts := strings.Split(strings.TrimSpace(line), "|")
-			if len(parts) < 2 {
-				continue
-			}
-			name, image := parts[0], parts[1]
-			
-			// Get local digest
-			localOut, _ := runCmd("docker", "inspect", "--format", "{{.RepoDigests}}", image)
-			
-			// Pull to check for updates
-			runCmd("docker", "pull", image)
-			
-			// Get new digest
-			newOut, _ := runCmd("docker", "inspect", "--format", "{{.RepoDigests}}", image)
-			
-			if localOut != newOut && localOut != "" {
-				icon := getIcon(name)
-				
-				// Check if it's compose
-				inspectOut, _ := runCmd("docker", "inspect", name)
-				var project string
-				var inspectData []map[string]interface{}
-				if json.Unmarshal([]byte(inspectOut), &inspectData) == nil && len(inspectData) > 0 {
-					if labels, ok := inspectData[0]["Config"].(map[string]interface{})["Labels"].(map[string]interface{}); ok {
-						if p, ok := labels["com.docker.compose.project"].(string); ok {
-							project = p
-						}
-					}
-				}
-				
-				msg := fmt.Sprintf("🆕 %s *%s*\nNueva versión disponible de `%s`", icon, name, image)
-				if project != "" {
-					msg += fmt.Sprintf("\nProyecto: `%s`", project)
-				}
-				
-				m := tgbotapi.NewMessage(notifyChatID, msg)
-				m.ParseMode = "Markdown"
-				
-				var keyboard tgbotapi.InlineKeyboardMarkup
-				if project != "" {
-					// Docker compose update
-					keyboard = tgbotapi.NewInlineKeyboardMarkup(
-						tgbotapi.NewInlineKeyboardRow(
-							tgbotapi.NewInlineKeyboardButtonData("🔄 Update Compose", "update_compose:"+project),
-						),
-					)
-				} else {
-					// Regular docker update
-					keyboard = tgbotapi.NewInlineKeyboardMarkup(
-						tgbotapi.NewInlineKeyboardRow(
-							tgbotapi.NewInlineKeyboardButtonData("🔄 Recreate", "recreate:"+name),
-						),
-					)
-				}
-				m.ReplyMarkup = keyboard
-				bot.Send(m)
+
+		// Collect unique compose projects for this image
+		projectSet := make(map[string]bool)
+		for _, c := range containers {
+			if c.project != "" {
+				projectSet[c.project] = true
 			}
 		}
+
+		// Build notification
+		icon := getIcon(containers[0].name)
+		names := make([]string, 0, len(containers))
+		for _, c := range containers {
+			names = append(names, c.name)
+		}
+		msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\nImagen: `%s`\nContenedor(es): `%s`",
+			icon, image, strings.Join(names, "`, `"))
+
+		if len(projectSet) > 0 {
+			projects := make([]string, 0, len(projectSet))
+			for p := range projectSet {
+				projects = append(projects, p)
+			}
+			msgText += fmt.Sprintf("\nProyecto(s): `%s`", strings.Join(projects, "`, `"))
+		}
+
+		m := tgbotapi.NewMessage(notifyChatID, msgText)
+		m.ParseMode = "Markdown"
+
+		var rows [][]tgbotapi.InlineKeyboardButton
+		if len(projectSet) > 0 {
+			for p := range projectSet {
+				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+p, "update_compose:"+p),
+				))
+			}
+		} else {
+			for _, c := range containers {
+				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("🔄 Recrear: "+c.name, "recreate:"+c.name),
+				))
+			}
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		))
+		m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+		bot.Send(m)
 	}
 }
 
@@ -1454,6 +1530,8 @@ func main() {
 		{Command: "env", Description: "Ver variables de entorno"},
 		{Command: "history", Description: "Historial de comandos"},
 		{Command: "diagnose", Description: "Diagnóstico del sistema"},
+		{Command: "list", Description: "Listar todos los contenedores con estado"},
+		{Command: "checkupdates", Description: "Buscar actualizaciones de imágenes"},
 		{Command: "restart", Description: "Reiniciar contenedor"},
 		{Command: "stop", Description: "Detener contenedor"},
 		{Command: "logs", Description: "Ver logs de contenedor"},
@@ -1519,7 +1597,7 @@ func main() {
 			bot.Send(deleteMsg)
 			
 			// Check if user is in a conversation state
-			if state, exists := userState[userID]; exists && update.Message.Command() == "" {
+			if state, exists := userState[userID]; exists && (update.Message.Command() == "" || (strings.HasPrefix(state, "create_") && update.Message.Command() == "skip")) {
 				text := update.Message.Text
 				
 				// Handle create container states
@@ -1598,6 +1676,13 @@ func main() {
 				go handleHistory(chatID, update.Message.From.ID)
 			case "diagnose":
 				go handleDiagnose(chatID)
+			case "list":
+				go handleList(chatID)
+			case "checkupdates":
+				go func() {
+					sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
+					runImageUpdateCheck()
+				}()
 			}
 		} else if update.CallbackQuery != nil {
 			log.Printf("Received callback: %s from %d", update.CallbackQuery.Data, update.CallbackQuery.Message.Chat.ID)
