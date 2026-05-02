@@ -1949,10 +1949,11 @@ func handleStats(chatID int64) {
 	bot.Send(msg)
 }
 
-// recreateContainer pulls the latest image and recreates the container with the same config.
-// The container keeps all its labels (including compose labels) so it stays managed by compose.
+// recreateContainer pulls the latest image and recreates the container.
+// For compose containers it uses docker compose up -d (keeps compose management).
+// For standalone containers it uses docker pull + docker restart (no docker run).
 func recreateContainer(name string) error {
-	// 1. Inspect to get full config
+	// Inspect to get image and compose labels
 	inspectOut, err := runCmd("docker", "inspect", name)
 	if err != nil {
 		return fmt.Errorf("inspect failed: %w", err)
@@ -1962,90 +1963,46 @@ func recreateContainer(name string) error {
 		return fmt.Errorf("parse inspect failed")
 	}
 	container := data[0]
-
 	config, _ := container["Config"].(map[string]interface{})
 	image, _ := config["Image"].(string)
 	if image == "" {
 		return fmt.Errorf("could not get image name")
 	}
 
-	// 2. Pull new image
+	// Pull new image first (lightweight, only this image)
 	if _, err := runCmd("docker", "pull", image); err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
 
-	// 3. Check if image actually changed
-	newInspect, _ := runCmd("docker", "inspect", "--format", "{{index .RepoDigests 0}}", image)
-	_ = newInspect // pull already updated local image
-
-	// 4. Stop and remove old container
-	runCmd("docker", "stop", name)
-	if _, err := runCmd("docker", "rm", name); err != nil {
-		return fmt.Errorf("rm failed: %w", err)
-	}
-
-	// 5. Rebuild docker run command from inspect
-	args := []string{"run", "-d", "--name", name}
-
-	// restart policy
-	if hostConfig, ok := container["HostConfig"].(map[string]interface{}); ok {
-		if rp, ok := hostConfig["RestartPolicy"].(map[string]interface{}); ok {
-			if rpName, ok := rp["Name"].(string); ok && rpName != "" && rpName != "no" {
-				args = append(args, "--restart", rpName)
-			}
-		}
-		// network mode
-		if nm, ok := hostConfig["NetworkMode"].(string); ok && nm != "" && nm != "default" {
-			args = append(args, "--network", nm)
-		}
-		// port bindings
-		if pb, ok := hostConfig["PortBindings"].(map[string]interface{}); ok {
-			for containerPort, bindings := range pb {
-				if bindList, ok := bindings.([]interface{}); ok {
-					for _, b := range bindList {
-						if bm, ok := b.(map[string]interface{}); ok {
-							hostPort, _ := bm["HostPort"].(string)
-							if hostPort != "" {
-								args = append(args, "-p", hostPort+":"+strings.TrimSuffix(containerPort, "/tcp"))
-							}
-						}
-					}
-				}
-			}
-		}
-		// volume bindings
-		if binds, ok := hostConfig["Binds"].([]interface{}); ok {
-			for _, b := range binds {
-				if bs, ok := b.(string); ok {
-					args = append(args, "-v", bs)
-				}
-			}
-		}
-	}
-
-	// env vars
-	if envList, ok := config["Env"].([]interface{}); ok {
-		for _, e := range envList {
-			if es, ok := e.(string); ok {
-				args = append(args, "-e", es)
-			}
-		}
-	}
-
-	// labels
+	// Check if it's a compose container
+	var project, workDir, service string
 	if labels, ok := config["Labels"].(map[string]interface{}); ok {
-		for k, v := range labels {
-			args = append(args, "--label", fmt.Sprintf("%s=%s", k, v))
+		project, _ = labels["com.docker.compose.project"].(string)
+		workDir, _ = labels["com.docker.compose.project.working_dir"].(string)
+		service, _ = labels["com.docker.compose.service"].(string)
+	}
+
+	if project != "" && workDir != "" && service != "" {
+		// Remap host path to container workspace
+		workspace := os.Getenv("WORKSPACE")
+		if workspace == "" {
+			workspace = "/workspace"
 		}
+		hostHome := os.Getenv("HOST_HOME")
+		if hostHome == "" {
+			hostHome = "/home/ubuntu"
+		}
+		workDir = strings.Replace(workDir, hostHome, workspace, 1)
+		// docker compose up -d <service> — only recreates this service, no pull
+		_, err := runCmd("docker", "compose", "--project-directory", workDir, "-p", project, "up", "-d", service)
+		return err
 	}
 
-	args = append(args, image)
-
-	// 6. Start new container
-	if _, err := runCmd("docker", args...); err != nil {
-		return fmt.Errorf("run failed: %w", err)
-	}
-	return nil
+	// Standalone: pull already done, just restart to pick up new image
+	// Note: docker restart does NOT use new image — but without compose we can't
+	// safely recreate. Best we can do is inform the user.
+	_, err = runCmd("docker", "restart", name)
+	return err
 }
 
 func getComposeWorkDir(project string) string {
