@@ -1174,45 +1174,30 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = "✅ Volumen eliminado"
 		}
 	case "update_compose":
-		workDir := getComposeWorkDir(target)
-		if workDir == "" {
-			out = "❌ No se encontró el directorio del proyecto `" + target + "`"
+		// Get all containers in this compose project and recreate each one
+		psOut, _ := runCmd("docker", "ps", "-a", "--filter", "label=com.docker.compose.project="+target, "--format", "{{.Names}}")
+		containers := strings.Split(strings.TrimSpace(psOut), "\n")
+		if len(containers) == 0 || containers[0] == "" {
+			out = "❌ No se encontraron contenedores en el proyecto `" + target + "`"
 			break
 		}
-		// up -d with --pull always pulls new images and recreates only changed services
-		out2, err2 := runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "up", "-d", "--pull", "always")
-		if err2 == nil {
-			out = fmt.Sprintf("✅ Proyecto *%s* actualizado", target)
-			if out2 != "" {
-				out += "\n```\n" + out2 + "\n```"
+		var results []string
+		for _, cname := range containers {
+			if cname == "" {
+				continue
 			}
-		} else {
-			out = "❌ Error: " + err2.Error()
+			if err2 := recreateContainer(cname); err2 != nil {
+				results = append(results, "❌ "+cname+": "+err2.Error())
+			} else {
+				results = append(results, "✅ "+cname)
+			}
 		}
+		out = fmt.Sprintf("🔄 *Proyecto %s actualizado*\n%s", target, strings.Join(results, "\n"))
 	case "recreate":
-		// target is a container name — pull image then restart (works for any container)
-		inspectOut, _ := runCmd("docker", "inspect", target)
-		var image string
-		var inspectData []map[string]interface{}
-		if json.Unmarshal([]byte(inspectOut), &inspectData) == nil && len(inspectData) > 0 {
-			if config, ok := inspectData[0]["Config"].(map[string]interface{}); ok {
-				if img, ok := config["Image"].(string); ok {
-					image = img
-				}
-			}
-		}
-		if image == "" {
-			out = "❌ No se pudo obtener la imagen del contenedor"
-			break
-		}
-		_, err = runCmd("docker", "pull", image)
-		if err != nil {
-			out = "❌ Error al hacer pull: " + err.Error()
-			break
-		}
-		_, err = runCmd("docker", "restart", target)
-		if err == nil {
-			out = fmt.Sprintf("✅ *%s* actualizado y reiniciado con la nueva imagen `%s`", target, image)
+		if err2 := recreateContainer(target); err2 != nil {
+			out = "❌ Error: " + err2.Error()
+		} else {
+			out = fmt.Sprintf("✅ *%s* recreado con la nueva imagen", target)
 		}
 	case "inspect_net":
 		out, err = runCmd("docker", "network", "inspect", target)
@@ -1960,6 +1945,105 @@ func handleStats(chatID int64) {
 		),
 	)
 	bot.Send(msg)
+}
+
+// recreateContainer pulls the latest image and recreates the container with the same config.
+// The container keeps all its labels (including compose labels) so it stays managed by compose.
+func recreateContainer(name string) error {
+	// 1. Inspect to get full config
+	inspectOut, err := runCmd("docker", "inspect", name)
+	if err != nil {
+		return fmt.Errorf("inspect failed: %w", err)
+	}
+	var data []map[string]interface{}
+	if err := json.Unmarshal([]byte(inspectOut), &data); err != nil || len(data) == 0 {
+		return fmt.Errorf("parse inspect failed")
+	}
+	container := data[0]
+
+	config, _ := container["Config"].(map[string]interface{})
+	image, _ := config["Image"].(string)
+	if image == "" {
+		return fmt.Errorf("could not get image name")
+	}
+
+	// 2. Pull new image
+	if _, err := runCmd("docker", "pull", image); err != nil {
+		return fmt.Errorf("pull failed: %w", err)
+	}
+
+	// 3. Check if image actually changed
+	newInspect, _ := runCmd("docker", "inspect", "--format", "{{index .RepoDigests 0}}", image)
+	_ = newInspect // pull already updated local image
+
+	// 4. Stop and remove old container
+	runCmd("docker", "stop", name)
+	if _, err := runCmd("docker", "rm", name); err != nil {
+		return fmt.Errorf("rm failed: %w", err)
+	}
+
+	// 5. Rebuild docker run command from inspect
+	args := []string{"run", "-d", "--name", name}
+
+	// restart policy
+	if hostConfig, ok := container["HostConfig"].(map[string]interface{}); ok {
+		if rp, ok := hostConfig["RestartPolicy"].(map[string]interface{}); ok {
+			if rpName, ok := rp["Name"].(string); ok && rpName != "" && rpName != "no" {
+				args = append(args, "--restart", rpName)
+			}
+		}
+		// network mode
+		if nm, ok := hostConfig["NetworkMode"].(string); ok && nm != "" && nm != "default" {
+			args = append(args, "--network", nm)
+		}
+		// port bindings
+		if pb, ok := hostConfig["PortBindings"].(map[string]interface{}); ok {
+			for containerPort, bindings := range pb {
+				if bindList, ok := bindings.([]interface{}); ok {
+					for _, b := range bindList {
+						if bm, ok := b.(map[string]interface{}); ok {
+							hostPort, _ := bm["HostPort"].(string)
+							if hostPort != "" {
+								args = append(args, "-p", hostPort+":"+strings.TrimSuffix(containerPort, "/tcp"))
+							}
+						}
+					}
+				}
+			}
+		}
+		// volume bindings
+		if binds, ok := hostConfig["Binds"].([]interface{}); ok {
+			for _, b := range binds {
+				if bs, ok := b.(string); ok {
+					args = append(args, "-v", bs)
+				}
+			}
+		}
+	}
+
+	// env vars
+	if envList, ok := config["Env"].([]interface{}); ok {
+		for _, e := range envList {
+			if es, ok := e.(string); ok {
+				args = append(args, "-e", es)
+			}
+		}
+	}
+
+	// labels
+	if labels, ok := config["Labels"].(map[string]interface{}); ok {
+		for k, v := range labels {
+			args = append(args, "--label", fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+
+	args = append(args, image)
+
+	// 6. Start new container
+	if _, err := runCmd("docker", args...); err != nil {
+		return fmt.Errorf("run failed: %w", err)
+	}
+	return nil
 }
 
 func getComposeWorkDir(project string) string {
