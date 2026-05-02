@@ -14,7 +14,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/YonierGomez/botainer?logo=github&label=Release)](https://github.com/YonierGomez/botainer/releases)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/YonierGomez/botainer/docker-multiarch.yml?logo=githubactions&label=CI)](https://github.com/YonierGomez/botainer/actions)
 
-### Tecnologías
+### Tech Stack
 
 ![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
@@ -22,36 +22,36 @@
 ![Telegram](https://img.shields.io/badge/Telegram-26A5E4?logo=telegram&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?logo=docker&logoColor=white)
 
-Bot de Telegram escrito en Go para gestionar Docker desde el móvil. Más de 25 comandos, notificaciones en tiempo real, detección automática de actualizaciones de imágenes y una interfaz con botones interactivos.
+Telegram bot written in Go to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, and an interactive button interface.
 
 ---
 
-## Requisitos
+## Requirements
 
-- Servidor Linux con Docker y Docker Compose instalados
-- Token de bot de Telegram (ver sección siguiente)
+- Linux server with Docker and Docker Compose installed
+- Telegram bot token (see next section)
 
 ---
 
-## 1. Crear el bot en Telegram
+## 1. Create the bot on Telegram
 
-1. Abre Telegram y busca [@BotFather](https://t.me/botfather)
-2. Envía `/newbot`
-3. Elige un nombre para el bot (ej: `Mi Docker Bot`)
-4. Elige un username que termine en `bot` (ej: `midocker_bot`)
-5. BotFather te entregará un token con este formato:
+1. Open Telegram and search for [@BotFather](https://t.me/botfather)
+2. Send `/newbot`
+3. Choose a name for the bot (e.g. `My Docker Bot`)
+4. Choose a username ending in `bot` (e.g. `mydocker_bot`)
+5. BotFather will give you a token in this format:
 
 ```
 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 ```
 
-Guarda ese token, lo necesitarás en el siguiente paso.
+Save that token — you'll need it in the next step.
 
-> Para obtener tu Telegram User ID (necesario para restringir acceso), envía un mensaje a [@userinfobot](https://t.me/userinfobot).
+> To get your Telegram User ID (needed to restrict access), send a message to [@userinfobot](https://t.me/userinfobot).
 
 ---
 
-## 2. Instalación
+## 2. Installation
 
 ```bash
 git clone https://github.com/YonierGomez/botainer.git
@@ -59,32 +59,32 @@ cd botainer
 cp .env.example .env
 ```
 
-Edita `.env` con tu token:
+Edit `.env` with your token:
 
 ```bash
 nano .env
 ```
 
 ```env
-# Requerido
+# Required
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 
-# Opcional: restringe el acceso a estos User IDs (separados por coma)
-# Si se deja vacío, cualquier usuario puede usar el bot
+# Optional: restrict access to these User IDs (comma-separated)
+# If left empty, any user can interact with the bot
 ALLOWED_USERS=123456789,987654321
 ```
 
 ---
 
-## 3. Levantar con Docker
+## 3. Run with Docker
 
-### Opción A — Imagen precompilada desde Docker Hub (recomendado)
+### Option A — Pre-built image from Docker Hub (recommended)
 
 ```bash
 docker pull yoniergomez/botainer:latest
 ```
 
-Edita el `docker-compose.yml` para usar la imagen en lugar de build:
+Edit `docker-compose.yml` to use the image instead of building:
 
 ```yaml
 services:
@@ -103,21 +103,21 @@ services:
     network_mode: host
 ```
 
-### Opción B — Build local desde el código fuente
+### Option B — Local build from source
 
 ```bash
 docker compose up -d --build
 ```
 
-Verifica que esté corriendo:
+Verify it's running:
 
 ```bash
 docker logs -f botainer
 ```
 
-Deberías ver: `Bot iniciado: @tu_bot`
+You should see: `Bot started: @your_bot`
 
-Para detenerlo:
+To stop it:
 
 ```bash
 docker compose down
@@ -125,7 +125,7 @@ docker compose down
 
 ---
 
-## 4. Configuración del docker-compose.yml
+## 4. docker-compose.yml configuration
 
 ```yaml
 services:
@@ -141,111 +141,111 @@ services:
     network_mode: host
 ```
 
-El volumen `/var/run/docker.sock` le da acceso al daemon de Docker del host. El volumen `/workspace` apunta al directorio donde viven tus proyectos Docker Compose (ajústalo según tu servidor).
+The `/var/run/docker.sock` volume gives access to the host Docker daemon. The `/workspace` volume points to the directory where your Docker Compose projects live — adjust it to match your server.
 
 ---
 
-## 5. Comandos disponibles
+## 5. Available commands
 
-### Menú y estado
+### Menu & status
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `/start` | Menú principal con botones |
-| `/list` | Todos los contenedores con estado (🟢🔴🟡) en un solo mensaje |
-| `/ps` | Contenedores corriendo con CPU y RAM |
-| `/running` | Todos los contenedores con botones de acción |
-| `/stats` | Dashboard del sistema (CPU, RAM, disco) |
+| `/start` | Main menu with buttons |
+| `/list` | All containers with status (🟢🔴🟡) in a single message |
+| `/ps` | Running containers with CPU and RAM |
+| `/running` | All containers with action buttons |
+| `/stats` | System dashboard (CPU, RAM, disk) |
 
-### Gestión de contenedores
+### Container management
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `/create` | Asistente para crear contenedor (Docker Run o Compose) |
-| `/restart` | Reiniciar contenedor |
-| `/stop` | Detener contenedor |
-| `/start_container` | Iniciar contenedor detenido |
-| `/pause` / `/unpause` | Pausar / reanudar contenedor |
-| `/exec` | Ejecutar comando dentro de un contenedor |
-| `/logs` | Ver logs en tiempo real |
-| `/logfile` | Descargar logs como archivo `.log` |
-| `/inspect` | Inspeccionar contenedores, imágenes, volúmenes y redes |
+| `/create` | Wizard to create a container (Docker Run or Compose) |
+| `/restart` | Restart a container |
+| `/stop` | Stop a container |
+| `/start_container` | Start a stopped container |
+| `/pause` / `/unpause` | Pause / resume a container |
+| `/exec` | Execute a command inside a container |
+| `/logs` | View logs in real time |
+| `/logfile` | Download logs as a `.log` file |
+| `/inspect` | Inspect containers, images, volumes and networks |
 
-### Imágenes y actualizaciones
+### Images & updates
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `/checkupdates` | Buscar actualizaciones de imágenes manualmente |
-| `/updateall` | Actualizar todas las imágenes y recrear contenedores |
-| `/images` | Listar imágenes locales |
+| `/checkupdates` | Manually check for image updates |
+| `/updateall` | Update all images and recreate containers |
+| `/images` | List local images |
 
 ### Docker Compose
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `/compose` | Gestionar proyectos Compose (up, down, restart, pull, ps) |
+| `/compose` | Manage Compose projects (up, down, restart, pull, ps) |
 
-### Recursos
+### Resources
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `/volumes` | Listar volúmenes |
-| `/networks` | Listar redes |
-| `/prune` | Limpiar recursos no usados |
-| `/search` | Buscar en contenedores, imágenes y volúmenes |
+| `/volumes` | List volumes |
+| `/networks` | List networks |
+| `/prune` | Clean up unused resources |
+| `/search` | Search across containers, images and volumes |
 
-### Utilidades
+### Utilities
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `/diagnose` | Diagnóstico automático (contenedores caídos, uso alto de recursos) |
-| `/favorites` | Ver contenedores favoritos |
-| `/addfav` | Agregar contenedor a favoritos |
-| `/env` | Ver variables de entorno de un contenedor |
-| `/history` | Historial de comandos ejecutados |
+| `/diagnose` | Auto diagnostics (stopped containers, high resource usage) |
+| `/favorites` | View favorite containers |
+| `/addfav` | Add a container to favorites |
+| `/env` | View environment variables of a container |
+| `/history` | Command execution history |
 
 ---
 
-## 6. Notificaciones automáticas
+## 6. Automatic notifications
 
-Las notificaciones se activan al enviar cualquier mensaje al bot. Recibirás alertas de:
+Notifications are activated when you send any message to the bot. You'll receive alerts for:
 
-- 🟢 Contenedor iniciado
-- 🔴 Contenedor detenido
-- 💥 Contenedor caído inesperadamente
-- 🔄 Contenedor reiniciado
-- ⏸️ Contenedor pausado / ▶️ reanudado
-- 🗑️ Contenedor eliminado
-- 🆕 Nueva versión de imagen disponible (con botón para actualizar)
+- 🟢 Container started
+- 🔴 Container stopped
+- 💥 Container crashed unexpectedly
+- 🔄 Container restarted
+- ⏸️ Container paused / ▶️ resumed
+- 🗑️ Container removed
+- 🆕 New image version available (with an update button)
 
-### Actualizaciones de imágenes
+### Image updates
 
-El bot verifica automáticamente si hay nuevas versiones de las imágenes cada 6 horas (primera verificación a los 5 minutos de arrancar). También puedes lanzarlo manualmente con `/checkupdates` o desde el menú principal.
+The bot automatically checks for new image versions every 6 hours (first check 5 minutes after startup). You can also trigger it manually with `/checkupdates` or from the main menu.
 
-Cuando detecta una actualización, envía una notificación con botones:
+When an update is detected, it sends a notification with buttons:
 
-- Si el contenedor pertenece a un proyecto Docker Compose → botón **🔄 Pull & Up: \<proyecto\>** que ejecuta `pull` + `up -d`
-- Si es un contenedor standalone → botón **🔄 Recrear: \<nombre\>**
+- If the container belongs to a Docker Compose project → **🔄 Pull & Up: \<project\>** button that runs `pull` + `up -d`
+- If it's a standalone container → **🔄 Recreate: \<name\>** button
 
 ---
 
-## 7. Seguridad
+## 7. Security
 
-Restringe el acceso agregando tu User ID en `.env`:
+Restrict access by adding your User ID to `.env`:
 
 ```env
 ALLOWED_USERS=123456789
 ```
 
-Recomendaciones adicionales:
+Additional recommendations:
 
-- Rota el token periódicamente desde @BotFather (`/revoke`)
-- No subas el archivo `.env` al repositorio (ya está en `.gitignore`)
-- Usa VPN para acceso remoto al servidor
+- Rotate the token periodically via @BotFather (`/revoke`)
+- Never commit the `.env` file (it's already in `.gitignore`)
+- Use a VPN for remote server access
 
 ---
 
-## 8. Actualizar el bot
+## 8. Update the bot
 
 ```bash
 cd botainer
@@ -255,44 +255,44 @@ docker compose up -d --build
 
 ---
 
-## 9. Solución de problemas
+## 9. Troubleshooting
 
-**El bot no responde**
+**Bot not responding**
 ```bash
 docker ps | grep botainer
 docker logs --tail 50 botainer
 docker compose restart
 ```
 
-**Error de permisos de Docker**
+**Docker permission error**
 ```bash
 sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-**Los comandos no aparecen en Telegram**
+**Commands not showing in Telegram**
 
-Los comandos se registran automáticamente al iniciar. Si no aparecen, reinicia el bot y espera 1-2 minutos, luego escribe `/` en el chat.
+Commands are registered automatically on startup. If they don't appear, restart the bot, wait 1–2 minutes, then type `/` in the chat.
 
 ---
 
-## Contribuir
+## Contributing
 
-1. Crea una rama desde `main`
-2. Haz tus cambios y commitea
-3. Pushea la rama y abre un Pull Request
+1. Create a branch from `main`
+2. Make your changes and commit
+3. Push the branch and open a Pull Request
 
 ```bash
-git checkout -b mi-feature
-git add -A && git commit -m "feat: mi cambio"
-git push origin mi-feature
+git checkout -b my-feature
+git add -A && git commit -m "feat: my change"
+git push origin my-feature
 ```
 
 ---
 
-## Apoya el proyecto
+## Support the project
 
-Si te resulta útil, considera apoyar el desarrollo:
+If you find it useful, consider supporting development:
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/yoniergomez)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/YonierGomez)
@@ -302,10 +302,10 @@ Si te resulta útil, considera apoyar el desarrollo:
 ## Links
 
 - [GitHub](https://github.com/YonierGomez/botainer)
-- [Web del autor](https://www.yonier.com)
+- [Author's website](https://www.yonier.com)
 
 ---
 
-## Licencia
+## License
 
-MIT — consulta el archivo [LICENSE](LICENSE).
+MIT — see the [LICENSE](LICENSE) file.
