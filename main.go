@@ -1232,39 +1232,101 @@ func monitorEvents() {
 			if err := decoder.Decode(&event); err != nil {
 				break
 			}
-			
+
 			if notifyChatID == 0 {
 				continue
 			}
-			
+
 			action, _ := event["Action"].(string)
 			actor, _ := event["Actor"].(map[string]interface{})
 			attrs, _ := actor["Attributes"].(map[string]interface{})
 			name, _ := attrs["name"].(string)
-			
-			var msg string
+			image, _ := attrs["image"].(string)
+			exitCode, _ := attrs["exitCode"].(string)
+
+			if name == "" {
+				continue
+			}
+
 			icon := getIcon(name)
 			now := time.Now().Format("02/01 15:04:05")
+
+			type notification struct {
+				text    string
+				buttons [][]tgbotapi.InlineKeyboardButton
+			}
+			var n *notification
+
 			switch action {
 			case "start":
-				msg = fmt.Sprintf("🟢 *Contenedor iniciado*\n%s `%s`\n🕐 %s", icon, name, now)
+				n = &notification{
+					text: fmt.Sprintf("🟢 *Contenedor iniciado*\n%s *%s*\n📦 `%s`\n🕐 %s", icon, name, image, now),
+					buttons: [][]tgbotapi.InlineKeyboardButton{
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+name),
+							tgbotapi.NewInlineKeyboardButtonData("⏸️ Stop", "stop:"+name),
+						),
+					},
+				}
 			case "stop":
-				msg = fmt.Sprintf("🔴 *Contenedor detenido*\n%s `%s`\n🕐 %s", icon, name, now)
+				n = &notification{
+					text: fmt.Sprintf("🔴 *Contenedor detenido*\n%s *%s*\n📦 `%s`\n🕐 %s", icon, name, image, now),
+					buttons: [][]tgbotapi.InlineKeyboardButton{
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("▶️ Start", "start:"+name),
+							tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+name),
+						),
+					},
+				}
 			case "die":
-				msg = fmt.Sprintf("💥 *Contenedor caído*\n%s `%s`\n⚠️ Salió inesperadamente\n🕐 %s", icon, name, now)
+				exitInfo := ""
+				if exitCode != "" && exitCode != "0" {
+					exitInfo = fmt.Sprintf("\n💀 Exit code: `%s`", exitCode)
+				}
+				n = &notification{
+					text: fmt.Sprintf("💥 *Contenedor caído*\n%s *%s*\n📦 `%s`%s\n🕐 %s", icon, name, image, exitInfo, now),
+					buttons: [][]tgbotapi.InlineKeyboardButton{
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("🔄 Restart", "restart:"+name),
+							tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+name),
+						),
+					},
+				}
 			case "restart":
-				msg = fmt.Sprintf("🔄 *Contenedor reiniciado*\n%s `%s`\n🕐 %s", icon, name, now)
+				n = &notification{
+					text: fmt.Sprintf("🔄 *Contenedor reiniciado*\n%s *%s*\n📦 `%s`\n🕐 %s", icon, name, image, now),
+					buttons: [][]tgbotapi.InlineKeyboardButton{
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+name),
+							tgbotapi.NewInlineKeyboardButtonData("⏸️ Stop", "stop:"+name),
+						),
+					},
+				}
 			case "destroy":
-				msg = fmt.Sprintf("🗑️ *Contenedor eliminado*\n%s `%s`\n🕐 %s", icon, name, now)
+				n = &notification{
+					text: fmt.Sprintf("🗑️ *Contenedor eliminado*\n%s *%s*\n📦 `%s`\n🕐 %s", icon, name, image, now),
+				}
 			case "pause":
-				msg = fmt.Sprintf("⏸️ *Contenedor pausado*\n%s `%s`\n🕐 %s", icon, name, now)
+				n = &notification{
+					text: fmt.Sprintf("⏸️ *Contenedor pausado*\n%s *%s*\n📦 `%s`\n🕐 %s", icon, name, image, now),
+					buttons: [][]tgbotapi.InlineKeyboardButton{
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("▶️ Reanudar", "unpause:"+name),
+						),
+					},
+				}
 			case "unpause":
-				msg = fmt.Sprintf("▶️ *Contenedor reanudado*\n%s `%s`\n🕐 %s", icon, name, now)
+				n = &notification{
+					text: fmt.Sprintf("▶️ *Contenedor reanudado*\n%s *%s*\n📦 `%s`\n🕐 %s", icon, name, image, now),
+				}
 			}
-			
-			if msg != "" {
-				m := tgbotapi.NewMessage(notifyChatID, msg)
+
+			if n != nil {
+				m := tgbotapi.NewMessage(notifyChatID, n.text)
 				m.ParseMode = "Markdown"
+				if len(n.buttons) > 0 {
+					m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(n.buttons...)
+				}
 				bot.Send(m)
 			}
 		}
