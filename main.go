@@ -1576,18 +1576,14 @@ func runImageUpdateCheck() int {
 		m.ParseMode = "Markdown"
 
 		var rows [][]tgbotapi.InlineKeyboardButton
-		if len(projectSet) > 0 {
-			for p := range projectSet {
-				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+p, "update_compose:"+p),
-				))
+		for _, c := range containers {
+			label := "🔄 Recrear: " + c.name
+			if c.project != "" {
+				label = "🔄 Recrear: " + c.name + " (" + c.project + ")"
 			}
-		} else {
-			for _, c := range containers {
-				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🔄 Recrear: "+c.name, "recreate:"+c.name),
-				))
-			}
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(label, "recreate:"+c.name),
+			))
 		}
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
