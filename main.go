@@ -1967,7 +1967,17 @@ func getComposeWorkDir(project string) string {
 		if json.Unmarshal([]byte(inspOut), &inspData) == nil && len(inspData) > 0 {
 			if labels, ok := inspData[0]["Config"].(map[string]interface{})["Labels"].(map[string]interface{}); ok {
 				if wd, ok := labels["com.docker.compose.project.working_dir"].(string); ok && wd != "" {
-					return wd
+					// Remap host path to container workspace mount
+					// e.g. /home/ubuntu/chips_all -> /workspace/chips_all
+					workspace := os.Getenv("WORKSPACE")
+					if workspace == "" {
+						workspace = "/workspace"
+					}
+					hostHome := os.Getenv("HOST_HOME")
+					if hostHome == "" {
+						hostHome = "/home/ubuntu"
+					}
+					return strings.Replace(wd, hostHome, workspace, 1)
 				}
 			}
 		}
