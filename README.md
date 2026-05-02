@@ -5,6 +5,10 @@
 [![GitHub Issues](https://img.shields.io/github/issues/YonierGomez/botainer?logo=github&label=Issues)](https://github.com/YonierGomez/botainer/issues)
 [![GitHub License](https://img.shields.io/github/license/YonierGomez/botainer?logo=opensourceinitiative&label=License)](https://github.com/YonierGomez/botainer/blob/main/LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/YonierGomez/botainer?logo=github&label=Last%20Commit)](https://github.com/YonierGomez/botainer/commits/main)
+[![Docker Pulls](https://img.shields.io/docker/pulls/yoniergomez/botainer?logo=docker&label=Docker%20Pulls)](https://hub.docker.com/r/yoniergomez/botainer)
+[![Docker Image Size](https://img.shields.io/docker/image-size/yoniergomez/botainer/latest?logo=docker&label=Image%20Size)](https://hub.docker.com/r/yoniergomez/botainer)
+[![GitHub Release](https://img.shields.io/github/v/release/YonierGomez/botainer?logo=github&label=Release)](https://github.com/YonierGomez/botainer/releases)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/YonierGomez/botainer/docker-multiarch.yml?logo=githubactions&label=CI)](https://github.com/YonierGomez/botainer/actions)
 
 ### Tecnologías
 
@@ -69,6 +73,33 @@ ALLOWED_USERS=123456789,987654321
 ---
 
 ## 3. Levantar con Docker
+
+### Opción A — Imagen precompilada desde Docker Hub (recomendado)
+
+```bash
+docker pull yoniergomez/botainer:latest
+```
+
+Edita el `docker-compose.yml` para usar la imagen en lugar de build:
+
+```yaml
+services:
+  botainer:
+    image: yoniergomez/botainer:latest
+    container_name: botainer
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/ubuntu:/workspace:ro
+    env_file:
+      - .env
+    environment:
+      - HOST_HOME=/home/ubuntu
+      - WORKSPACE=/workspace
+    network_mode: host
+```
+
+### Opción B — Build local desde el código fuente
 
 ```bash
 docker compose up -d --build
