@@ -1193,6 +1193,10 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			}
 		}
 		out = fmt.Sprintf("🔄 *Proyecto %s actualizado*\n%s", target, strings.Join(results, "\n"))
+	case "pull_image":
+		if _, err = runCmd("docker", "pull", target); err == nil {
+			out = fmt.Sprintf("✅ Imagen `%s` actualizada\nEl contenedor seguirá usando la imagen anterior hasta que lo recrees.", target)
+		}
 	case "recreate":
 		if err2 := recreateContainer(target); err2 != nil {
 			out = "❌ Error: " + err2.Error()
@@ -1575,14 +1579,16 @@ func runImageUpdateCheck() int {
 		m := tgbotapi.NewMessage(notifyChatID, msgText)
 		m.ParseMode = "Markdown"
 
+		// One row per container: [pull only] [recreate]
 		var rows [][]tgbotapi.InlineKeyboardButton
 		for _, c := range containers {
-			label := "🔄 Recrear: " + c.name
+			recreateLabel := "🔄 Recrear: " + c.name
 			if c.project != "" {
-				label = "🔄 Recrear: " + c.name + " (" + c.project + ")"
+				recreateLabel = "🔄 Recrear: " + c.name + " (" + c.project + ")"
 			}
 			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(label, "recreate:"+c.name),
+				tgbotapi.NewInlineKeyboardButtonData("⬇️ Solo pull: "+image, "pull_image:"+image),
+				tgbotapi.NewInlineKeyboardButtonData(recreateLabel, "recreate:"+c.name),
 			))
 		}
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
