@@ -1,17 +1,59 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Botainer — Docker desde Telegram</title>
-  <meta name="description" content="Bot de Telegram para gestionar Docker desde tu móvil. +25 comandos, notificaciones en tiempo real, escrito en Go." />
+
+  <!-- Primary SEO -->
+  <title>Botainer — Manage Docker from Telegram</title>
+  <meta name="description" content="Open-source Telegram bot written in Go to manage Docker containers from your phone. 25+ commands, real-time notifications, Docker Compose support, multi-arch image." />
+  <meta name="keywords" content="docker telegram bot, manage docker remotely, docker bot go, botainer, docker compose telegram, container management bot, self-hosted docker bot" />
+  <meta name="author" content="Yonier Gomez" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://yoniergomez.github.io/botainer/" />
+
+  <!-- Favicon -->
   <link rel="icon" type="image/png" href="botainer-image.png" />
-  <meta property="og:title" content="Botainer — Docker desde Telegram" />
-  <meta property="og:description" content="Bot de Telegram para gestionar Docker desde tu móvil. +25 comandos, notificaciones en tiempo real, escrito en Go." />
-  <meta property="og:image" content="botainer-image.png" />
+  <link rel="apple-touch-icon" href="botainer-image.png" />
+
+  <!-- Open Graph (Facebook, LinkedIn, WhatsApp, Slack, Discord) -->
   <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Botainer" />
+  <meta property="og:title" content="Botainer — Manage Docker from Telegram" />
+  <meta property="og:description" content="Open-source Telegram bot written in Go. Manage Docker containers from anywhere with 25+ commands, real-time alerts, and Docker Compose support." />
+  <meta property="og:url" content="https://yoniergomez.github.io/botainer/" />
+  <meta property="og:image" content="https://yoniergomez.github.io/botainer/og-preview.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Botainer — Manage Docker from Telegram" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter / X Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="botainer-image.png" />
+  <meta name="twitter:title" content="Botainer — Manage Docker from Telegram" />
+  <meta name="twitter:description" content="Open-source Telegram bot written in Go. 25+ commands, real-time notifications, Docker Compose, multi-arch." />
+  <meta name="twitter:image" content="https://yoniergomez.github.io/botainer/og-preview.png" />
+  <meta name="twitter:image:alt" content="Botainer — Manage Docker from Telegram" />
+  <meta name="twitter:creator" content="@YonierGomez" />
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Botainer",
+    "description": "Open-source Telegram bot written in Go to manage Docker containers remotely. 25+ commands, real-time notifications, Docker Compose support.",
+    "url": "https://yoniergomez.github.io/botainer/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "Yonier Gomez", "url": "https://yonier.com" },
+    "codeRepository": "https://github.com/YonierGomez/botainer",
+    "license": "https://github.com/YonierGomez/botainer/blob/main/LICENSE",
+    "image": "https://yoniergomez.github.io/botainer/botainer-image.png",
+    "keywords": "docker, telegram, bot, go, golang, container management, self-hosted"
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
   <style>
@@ -193,10 +235,10 @@
   <a class="nav-logo" href="#"><img src="botainer-image.png" alt="Botainer logo" />BOTAINER<span class="dot">.</span></a>
   <ul class="nav-links">
     <li><a href="#features">Features</a></li>
-    <li><a href="#commands">Comandos</a></li>
-    <li><a href="#install">Instalación</a></li>
+    <li><a href="#commands">Commands</a></li>
+    <li><a href="#install">Install</a></li>
     <li><a href="#ci">CI/CD</a></li>
-    <li><a href="#sponsor">☕ Apoyar</a></li>
+    <li><a href="#sponsor">☕ Sponsor</a></li>
   </ul>
   <a class="nav-cta" href="https://github.com/YonierGomez/botainer" target="_blank">GitHub →</a>
 </nav>
@@ -205,12 +247,12 @@
 <header class="hero">
   <div class="hero-left">
     <img class="hero-logo" src="botainer-image.png" alt="Botainer" />
-    <div class="hero-eyebrow">Open Source · Escrito en Go</div>
-    <h1>Docker en tu<br/><span class="line2">bolsillo.</span></h1>
-    <p class="hero-desc">Bot de Telegram para gestionar contenedores Docker desde cualquier lugar. +25 comandos, notificaciones en tiempo real, Docker Compose, diagnóstico automático.</p>
+    <div class="hero-eyebrow">Open Source · Written in Go</div>
+    <h1>Docker in your<br/><span class="line2">pocket.</span></h1>
+    <p class="hero-desc">Telegram bot to manage Docker containers from anywhere. 25+ commands, real-time notifications, Docker Compose, automatic diagnostics.</p>
     <div class="hero-actions">
-      <a class="btn-primary" href="https://github.com/YonierGomez/botainer" target="_blank">⭐ Ver en GitHub</a>
-      <a class="btn-ghost" href="#install">→ Instalación rápida</a>
+      <a class="btn-primary" href="https://github.com/YonierGomez/botainer" target="_blank">⭐ View on GitHub</a>
+      <a class="btn-ghost" href="#install">→ Quick install</a>
     </div>
   </div>
   <div class="hero-right">
@@ -221,7 +263,7 @@
       </div>
       <div class="terminal-body">
         <div><span class="t-prompt">@mybot</span> <span class="t-cmd">/ps</span></div>
-        <div class="t-out">🐳 Contenedores activos (4)</div>
+        <div class="t-out">🐳 Running containers (4)</div>
         <div class="t-out">━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
         <div class="t-out"><span class="t-green">● </span>🐘 postgres CPU 0.2% RAM 128MB</div>
         <div class="t-out"><span class="t-green">● </span>🔴 redis CPU 0.0% RAM 12MB</div>
@@ -229,8 +271,8 @@
         <div class="t-out"><span class="t-red">● </span>🍃 mongo CPU 0.0% RAM 64MB ⚠</div>
         <br/>
         <div><span class="t-prompt">@mybot</span> <span class="t-cmd">/diagnose</span></div>
-        <div class="t-out"><span class="t-teal">✓</span> 3 contenedores healthy</div>
-        <div class="t-out"><span class="t-red">✗</span> mongo: unhealthy — revisar logs</div>
+        <div class="t-out"><span class="t-teal">✓</span> 3 containers healthy</div>
+        <div class="t-out"><span class="t-red">✗</span> mongo: unhealthy — check logs</div>
         <br/>
         <div><span class="t-prompt">@mybot</span> <span class="t-cursor"></span></div>
       </div>
@@ -241,31 +283,31 @@
 <!-- STATS -->
 <div class="stats-strip">
   <div class="stats-inner">
-    <div class="stat-item"><div class="stat-val">25+</div><div class="stat-lbl">Comandos</div></div>
-    <div class="stat-item"><div class="stat-val">40+</div><div class="stat-lbl">Iconos</div></div>
+    <div class="stat-item"><div class="stat-val">25+</div><div class="stat-lbl">Commands</div></div>
+    <div class="stat-item"><div class="stat-val">40+</div><div class="stat-lbl">Icons</div></div>
     <div class="stat-item"><div class="stat-val">~20MB</div><div class="stat-lbl">RAM</div></div>
-    <div class="stat-item"><div class="stat-val">&lt;1s</div><div class="stat-lbl">Respuesta</div></div>
-    <div class="stat-item"><div class="stat-val">Go</div><div class="stat-lbl">Lenguaje</div></div>
+    <div class="stat-item"><div class="stat-val">&lt;1s</div><div class="stat-lbl">Response</div></div>
+    <div class="stat-item"><div class="stat-val">Go</div><div class="stat-lbl">Language</div></div>
   </div>
 </div>
 
 <!-- FEATURES -->
 <section class="section" id="features">
   <div class="section-header">
-    <div class="section-num">01 — Características</div>
-    <h2>Todo lo que necesitas<br/>para gestionar Docker.</h2>
-    <p class="section-sub">Desde monitoreo en tiempo real hasta creación de contenedores paso a paso.</p>
+    <div class="section-num">01 — Features</div>
+    <h2>Everything you need<br/>to manage Docker.</h2>
+    <p class="section-sub">From real-time monitoring to step-by-step container creation.</p>
   </div>
   <div class="features-grid">
-    <div class="feat"><div class="feat-icon">📊</div><h3>Monitoreo en tiempo real</h3><p>CPU, RAM y healthchecks de cada contenedor con actualización instantánea.</p></div>
-    <div class="feat"><div class="feat-icon">🔔</div><h3>Notificaciones automáticas</h3><p>Alertas de inicio, caída, reinicio y pausa sin configuración extra.</p></div>
-    <div class="feat"><div class="feat-icon">📁</div><h3>Docker Compose completo</h3><p>Up, Down, Restart, Pull y PS por proyecto con detección automática.</p></div>
-    <div class="feat"><div class="feat-icon">🛠️</div><h3>Crear contenedores</h3><p>Asistente paso a paso para Docker Run y Compose. Genera el comando o YAML listo para usar.</p></div>
-    <div class="feat"><div class="feat-icon">📜</div><h3>Logs avanzados</h3><p>Resaltado de errores, filtros, refresh y descarga como archivo .log.</p></div>
-    <div class="feat"><div class="feat-icon">🔧</div><h3>Diagnóstico automático</h3><p>Detecta contenedores caídos, unhealthy, alto CPU e imágenes sin usar.</p></div>
-    <div class="feat"><div class="feat-icon">🔍</div><h3>Búsqueda universal</h3><p>Busca en contenedores, imágenes y volúmenes con un solo comando.</p></div>
-    <div class="feat"><div class="feat-icon">⭐</div><h3>Favoritos</h3><p>Acceso rápido a los contenedores que más usas, persistente por usuario.</p></div>
-    <div class="feat"><div class="feat-icon">🔐</div><h3>Seguridad por whitelist</h3><p>Solo los usuarios autorizados pueden interactuar con el bot.</p></div>
+    <div class="feat"><div class="feat-icon">📊</div><h3>Real-time monitoring</h3><p>CPU, RAM and healthchecks for every container with instant updates.</p></div>
+    <div class="feat"><div class="feat-icon">🔔</div><h3>Automatic notifications</h3><p>Alerts on start, stop, restart and pause — zero extra configuration.</p></div>
+    <div class="feat"><div class="feat-icon">📁</div><h3>Full Docker Compose</h3><p>Up, Down, Restart, Pull and PS per project with auto-detection.</p></div>
+    <div class="feat"><div class="feat-icon">🛠️</div><h3>Create containers</h3><p>Step-by-step wizard for Docker Run and Compose. Generates the command or YAML ready to use.</p></div>
+    <div class="feat"><div class="feat-icon">📜</div><h3>Advanced logs</h3><p>Error highlighting, filters, refresh and download as .log file.</p></div>
+    <div class="feat"><div class="feat-icon">🔧</div><h3>Auto diagnostics</h3><p>Detects stopped containers, unhealthy status, high CPU and unused images.</p></div>
+    <div class="feat"><div class="feat-icon">🔍</div><h3>Universal search</h3><p>Search across containers, images and volumes with a single command.</p></div>
+    <div class="feat"><div class="feat-icon">⭐</div><h3>Favorites</h3><p>Quick access to your most-used containers, persistent per user.</p></div>
+    <div class="feat"><div class="feat-icon">🔐</div><h3>Whitelist security</h3><p>Only authorized users can interact with the bot.</p></div>
   </div>
 </section>
 
@@ -274,30 +316,30 @@
 <!-- COMMANDS -->
 <section class="section" id="commands">
   <div class="section-header">
-    <div class="section-num">02 — Comandos</div>
-    <h2>25 comandos listos<br/>para usar.</h2>
-    <p class="section-sub">Se registran automáticamente en BotFather al iniciar el bot.</p>
+    <div class="section-num">02 — Commands</div>
+    <h2>25 commands ready<br/>to use.</h2>
+    <p class="section-sub">Auto-registered in BotFather when the bot starts.</p>
   </div>
   <div class="commands-wrap">
     <div class="cmd-grid">
       <div>
-        <div class="cmd-group-title">Básicos</div>
+        <div class="cmd-group-title">Basic</div>
         <ul class="cmd-list"><li>/start</li><li>/list</li><li>/ps</li><li>/running</li><li>/stats</li></ul>
       </div>
       <div>
-        <div class="cmd-group-title">Gestión</div>
+        <div class="cmd-group-title">Management</div>
         <ul class="cmd-list"><li>/restart</li><li>/stop</li><li>/pause</li><li>/unpause</li><li>/create</li></ul>
       </div>
       <div>
-        <div class="cmd-group-title">Avanzados</div>
+        <div class="cmd-group-title">Advanced</div>
         <ul class="cmd-list"><li>/compose</li><li>/exec</li><li>/inspect</li><li>/search</li><li>/env</li></ul>
       </div>
       <div>
-        <div class="cmd-group-title">Recursos</div>
+        <div class="cmd-group-title">Resources</div>
         <ul class="cmd-list"><li>/images</li><li>/volumes</li><li>/networks</li><li>/prune</li><li>/updateall</li></ul>
       </div>
       <div>
-        <div class="cmd-group-title">Utilidades</div>
+        <div class="cmd-group-title">Utilities</div>
         <ul class="cmd-list"><li>/checkupdates</li><li>/favorites</li><li>/history</li><li>/diagnose</li><li>/donate</li></ul>
       </div>
     </div>
@@ -309,39 +351,39 @@
 <!-- INSTALL -->
 <section class="section" id="install">
   <div class="section-header">
-    <div class="section-num">03 — Instalación</div>
-    <h2>En marcha<br/>en 3 pasos.</h2>
-    <p class="section-sub">Solo necesitas Docker, Docker Compose y un token de Telegram.</p>
+    <div class="section-num">03 — Installation</div>
+    <h2>Up and running<br/>in 3 steps.</h2>
+    <p class="section-sub">All you need is Docker, Docker Compose and a Telegram token.</p>
   </div>
   <div class="install-grid">
     <div class="steps">
       <div class="step">
         <div class="step-n">01</div>
-        <div class="step-content"><h4>Clonar el repositorio</h4><p>Descarga el proyecto en tu servidor Linux.</p></div>
+        <div class="step-content"><h4>Clone the repository</h4><p>Download the project to your Linux server.</p></div>
       </div>
       <div class="step">
         <div class="step-n">02</div>
-        <div class="step-content"><h4>Configurar el token</h4><p>Copia el archivo de ejemplo y añade tu token de <a href="https://t.me/botfather" style="color:var(--amber);text-decoration:none">@BotFather</a>.</p></div>
+        <div class="step-content"><h4>Set your token</h4><p>Copy the example file and add your token from <a href="https://t.me/botfather" style="color:var(--amber);text-decoration:none">@BotFather</a>.</p></div>
       </div>
       <div class="step">
         <div class="step-n">03</div>
-        <div class="step-content"><h4>Iniciar el bot</h4><p>Docker construye la imagen y arranca el contenedor automáticamente.</p></div>
+        <div class="step-content"><h4>Start the bot</h4><p>Docker builds the image and starts the container automatically.</p></div>
       </div>
     </div>
     <div>
       <div class="code-block">
-        <code><span class="c-comment"># 1. Clonar</span>
+        <code><span class="c-comment"># 1. Clone</span>
 <span class="c-cmd">git clone</span> https://github.com/YonierGomez/botainer.git
 <span class="c-cmd">cd</span> botainer
 
-<span class="c-comment"># 2. Configurar token</span>
+<span class="c-comment"># 2. Set token</span>
 <span class="c-cmd">cp</span> .env.example .env
-<span class="c-comment"># Edita .env → TELEGRAM_BOT_TOKEN=tu_token</span>
+<span class="c-comment"># Edit .env → TELEGRAM_BOT_TOKEN=your_token</span>
 
-<span class="c-comment"># 3. Iniciar</span>
+<span class="c-comment"># 3. Start</span>
 <span class="c-cmd">docker compose up</span> -d --build
 <span class="c-cmd">docker logs</span> -f botainer
-<span class="c-comment"># → Bot iniciado: @tu_bot</span></code>
+<span class="c-comment"># → Bot started: @your_bot</span></code>
       </div>
     </div>
   </div>
@@ -353,12 +395,12 @@
 <section class="section" id="ci">
   <div class="section-header">
     <div class="section-num">04 — CI/CD</div>
-    <h2>Build multi-arch<br/>automatizado.</h2>
-    <p class="section-sub">Pipeline semanal que detecta nuevas versiones de Alpine y publica imágenes para amd64 y arm64 sin QEMU.</p>
+    <h2>Automated<br/>multi-arch build.</h2>
+    <p class="section-sub">Weekly pipeline that detects new Alpine versions and publishes images for amd64 and arm64 without QEMU.</p>
   </div>
   <div class="ci-box">
     <h3>Docker Multi-Arch CI</h3>
-    <p>El workflow se ejecuta cada lunes a las 08:00 UTC. Compara la versión de Alpine con el último release y, si hay cambios, construye en runners nativos, fusiona el manifiesto multi-arch y crea un GitHub Release con changelog.</p>
+    <p>The workflow runs every Monday at 08:00 UTC. It compares the Alpine version against the latest release and, if there are changes, builds on native runners, merges the multi-arch manifest and creates a GitHub Release with a changelog.</p>
     <div class="badges">
       <img src="https://img.shields.io/github/actions/workflow/status/YonierGomez/botainer/docker-multiarch.yml?label=Docker%20CI&style=flat-square" alt="CI" />
       <img src="https://img.shields.io/docker/pulls/yoniergomez/botainer?style=flat-square&label=Docker%20Pulls" alt="Pulls" />
@@ -384,12 +426,12 @@
 <!-- SPONSOR -->
 <section class="section" id="sponsor">
   <div class="section-header">
-    <div class="section-num">05 — Apoya el proyecto</div>
-    <h2>¿Te resulta útil?</h2>
-    <p class="section-sub">Si Botainer te ahorra tiempo, considera apoyar el desarrollo. Cada contribución ayuda a mantener el proyecto activo.</p>
+    <div class="section-num">05 — Support the project</div>
+    <h2>Find it useful?</h2>
+    <p class="section-sub">If Botainer saves you time, consider supporting development. Every contribution helps keep the project alive.</p>
   </div>
   <div class="sponsor-box">
-    <p>El proyecto es open source y gratuito. Si lo usas en producción o te ha sido de ayuda,<br/>un café o una sponsorship hace la diferencia. ¡Gracias! 🙏</p>
+    <p>The project is open source and free. If you use it in production or it has been helpful,<br/>a coffee or a sponsorship makes a real difference. Thank you! 🙏</p>
     <div class="sponsor-btns">
       <a class="btn-primary" href="https://buymeacoffee.com/yoniergomez" target="_blank">☕ Buy Me a Coffee</a>
       <a class="btn-ghost" href="https://github.com/sponsors/YonierGomez" target="_blank">💖 GitHub Sponsors</a>
@@ -407,7 +449,7 @@
     <a href="https://github.com/YonierGomez/botainer/blob/main/LICENSE" target="_blank">MIT License</a>
     <a href="https://buymeacoffee.com/yoniergomez" target="_blank">☕ Sponsor</a>
   </div>
-  <div class="footer-copy">Hecho para la comunidad Docker · <a href="https://yonier.com" target="_blank" style="color:var(--muted);text-decoration:none">yonier.com</a></div>
+  <div class="footer-copy">Built for the Docker community · <a href="https://yonier.com" target="_blank" style="color:var(--muted);text-decoration:none">yonier.com</a></div>
 </footer>
 
 </body>
