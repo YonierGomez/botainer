@@ -481,6 +481,12 @@ func handleList(chatID int64) {
 		return
 	}
 
+	closeBtn := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+
 	var sb strings.Builder
 	sb.WriteString("🐳 *Contenedores*\n\n")
 	for _, line := range lines {
@@ -496,17 +502,23 @@ func handleList(chatID int64) {
 		} else if strings.Contains(status, "Paused") {
 			dot = "🟡"
 		}
-		sb.WriteString(fmt.Sprintf("%s %s *%s*\n  %s\n  %s\n\n", dot, icon, name, status, image))
+		entry := fmt.Sprintf("%s %s *%s*\n  %s\n  %s\n\n", dot, icon, name, status, image)
+		// Flush chunk if adding this entry would exceed Telegram's limit
+		if sb.Len()+len(entry) > 4000 {
+			msg := tgbotapi.NewMessage(chatID, sb.String())
+			msg.ParseMode = "Markdown"
+			bot.Send(msg)
+			sb.Reset()
+		}
+		sb.WriteString(entry)
 	}
 
-	msg := tgbotapi.NewMessage(chatID, sb.String())
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
-	bot.Send(msg)
+	if sb.Len() > 0 {
+		msg := tgbotapi.NewMessage(chatID, sb.String())
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = closeBtn
+		bot.Send(msg)
+	}
 }
 
 func handleGrid(chatID int64, title, action string) {
