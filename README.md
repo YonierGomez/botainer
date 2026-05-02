@@ -1,7 +1,7 @@
 # 🐳 Botainer
 
 <p align="center">
-  <img src="docs/botainer-image.png" alt="Botainer" width="140" />
+  <img src="https://raw.githubusercontent.com/YonierGomez/botainer/main/docs/botainer-image.png" alt="Botainer" width="120" />
 </p>
 
 [![GitHub Stars](https://img.shields.io/github/stars/YonierGomez/botainer?style=flat&logo=github&label=Stars)](https://github.com/YonierGomez/botainer/stargazers)
