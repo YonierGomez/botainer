@@ -8,6 +8,7 @@
 
 ## Quick Start
 
+**Docker Hub**
 ```bash
 docker run -d \
   --name botainer \
@@ -15,6 +16,16 @@ docker run -d \
   -e TELEGRAM_BOT_TOKEN="your_token_here" \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   yoniergomez/botainer:latest
+```
+
+**GitHub Container Registry (no pull rate limits)**
+```bash
+docker run -d \
+  --name botainer \
+  --restart unless-stopped \
+  -e TELEGRAM_BOT_TOKEN="your_token_here" \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  ghcr.io/yoniergomez/botainer:latest
 ```
 
 > Get your token from [@BotFather](https://t.me/botfather) on Telegram.
@@ -120,6 +131,11 @@ Get your Telegram User ID from [@userinfobot](https://t.me/userinfobot).
 |---|---|
 | `latest` | Latest stable build |
 | `{alpine}-go{go}-tgapi{tgapi}` | Versioned build (e.g. `3.21.3-go1.24.2-tgapiv5.5.1`) |
+
+Also available on GitHub Container Registry:
+```bash
+docker pull ghcr.io/yoniergomez/botainer:latest
+```
 
 ---
 
