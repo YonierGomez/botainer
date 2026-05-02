@@ -62,6 +62,23 @@ func sendMessageWithClose(chatID int64, text string) {
 	bot.Send(msg)
 }
 
+func editToLoading(chatID int64, messageID int, text string) {
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, "⏳ "+text)
+	edit.ParseMode = "Markdown"
+	bot.Send(edit)
+}
+
+func sendLoading(chatID int64, text string) int {
+	msg := tgbotapi.NewMessage(chatID, "⏳ "+text)
+	msg.ParseMode = "Markdown"
+	sent, _ := bot.Send(msg)
+	return sent.MessageID
+}
+
+func deleteMsg(chatID int64, messageID int) {
+	bot.Send(tgbotapi.NewDeleteMessage(chatID, messageID))
+}
+
 func runCmd(cmd string, args ...string) (string, error) {
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	return string(out), err
@@ -339,6 +356,8 @@ func handleVolumes(chatID int64) {
 }
 
 func handlePS(chatID int64) {
+	loadingID := sendLoading(chatID, "Obteniendo estadísticas...")
+	defer deleteMsg(chatID, loadingID)
 	out, err := runCmd("docker", "ps", "--format", "{{.Names}}|{{.Status}}|{{.Image}}")
 	if err != nil {
 		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
@@ -399,6 +418,8 @@ func handlePS(chatID int64) {
 }
 
 func handleRunning(chatID int64) {
+	loadingID := sendLoading(chatID, "Cargando contenedores...")
+	defer deleteMsg(chatID, loadingID)
 	out, err := runCmd("docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}|{{.Image}}")
 	if err != nil {
 		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
@@ -470,6 +491,8 @@ func handleRunning(chatID int64) {
 }
 
 func handleList(chatID int64) {
+	loadingID := sendLoading(chatID, "Listando contenedores...")
+	defer deleteMsg(chatID, loadingID)
 	out, err := runCmd("docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}")
 	if err != nil {
 		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
@@ -759,6 +782,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	case "compose_up":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Iniciando proyecto *%s*...", target))
 		workDir := getComposeWorkDir(target)
 		if workDir != "" {
 			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "up", "-d")
@@ -769,6 +793,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = fmt.Sprintf("✅ Proyecto *%s* iniciado\n```\n%s\n```", target, out)
 		}
 	case "compose_down":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Deteniendo proyecto *%s*...", target))
 		workDir := getComposeWorkDir(target)
 		if workDir != "" {
 			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "down")
@@ -779,6 +804,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = fmt.Sprintf("✅ Proyecto *%s* detenido\n```\n%s\n```", target, out)
 		}
 	case "compose_restart":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Reiniciando proyecto *%s*...", target))
 		workDir := getComposeWorkDir(target)
 		if workDir != "" {
 			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "restart")
@@ -830,6 +856,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			return
 		}
 	case "compose_pull":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Descargando imágenes de *%s*...", target))
 		workDir := getComposeWorkDir(target)
 		if workDir != "" {
 			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "pull")
@@ -1079,16 +1106,19 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	case "restart":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Reiniciando *%s*...", target))
 		out, err = runCmd("docker", "restart", target)
 		if err == nil {
 			out = fmt.Sprintf("✅ *%s* reiniciado", target)
 		}
 	case "stop":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Deteniendo *%s*...", target))
 		out, err = runCmd("docker", "stop", target)
 		if err == nil {
 			out = fmt.Sprintf("✅ *%s* detenido", target)
 		}
 	case "start":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Iniciando *%s*...", target))
 		out, err = runCmd("docker", "start", target)
 		if err == nil {
 			// Wait a bit for container to start
@@ -1195,10 +1225,52 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 		out = fmt.Sprintf("🔄 *Proyecto %s actualizado*\n%s", target, strings.Join(results, "\n"))
 	case "pull_image":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Descargando imagen `%s`...", target))
 		if _, err = runCmd("docker", "pull", target); err == nil {
 			out = fmt.Sprintf("✅ Imagen `%s` actualizada\nEl contenedor seguirá usando la imagen anterior hasta que lo recrees.", target)
 		}
+	case "pull_recreate":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Actualizando y recreando *%s*...", target))
+		// Get current image and digest before pull
+		inspectOut, inspectErr := runCmd("docker", "inspect", target)
+		if inspectErr != nil {
+			out = "❌ No se pudo inspeccionar el contenedor"
+			break
+		}
+		var inspectData []map[string]interface{}
+		if json.Unmarshal([]byte(inspectOut), &inspectData) != nil || len(inspectData) == 0 {
+			out = "❌ No se pudo parsear la inspección"
+			break
+		}
+		config, _ := inspectData[0]["Config"].(map[string]interface{})
+		image, _ := config["Image"].(string)
+		if image == "" {
+			out = "❌ No se pudo obtener la imagen del contenedor"
+			break
+		}
+		oldDigest, _ := runCmd("docker", "inspect", "--format", "{{index .RepoDigests 0}}", image)
+		oldDigest = strings.TrimSpace(oldDigest)
+
+		if _, pullErr := runCmd("docker", "pull", image); pullErr != nil {
+			out = "❌ Error al hacer pull: " + pullErr.Error()
+			break
+		}
+
+		newDigest, _ := runCmd("docker", "inspect", "--format", "{{index .RepoDigests 0}}", image)
+		newDigest = strings.TrimSpace(newDigest)
+
+		if oldDigest != "" && oldDigest == newDigest {
+			out = fmt.Sprintf("ℹ️ La imagen `%s` ya estaba actualizada. No se recreó el contenedor.", image)
+			break
+		}
+
+		if recErr := recreateContainer(target); recErr != nil {
+			out = "✅ Pull exitoso, pero error al recrear: " + recErr.Error()
+		} else {
+			out = fmt.Sprintf("✅ *%s* actualizado y recreado con la nueva imagen `%s`", target, image)
+		}
 	case "recreate":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Recreando *%s*...", target))
 		if err2 := recreateContainer(target); err2 != nil {
 			out = "❌ Error: " + err2.Error()
 		} else {
@@ -1227,13 +1299,29 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		out = "❌ Error: " + err.Error()
 		log.Printf("Error in callback %s: %v", action, err)
 	}
-	
+
 	log.Printf("Sending response: %d chars", len(out))
-	msg := tgbotapi.NewMessage(chatID, out)
-	msg.ParseMode = "Markdown"
-	_, sendErr := bot.Send(msg)
-	if sendErr != nil {
-		log.Printf("Error sending message: %v", sendErr)
+
+	// Actions that called editToLoading: edit the same message with the result
+	loadingActions := map[string]bool{
+		"restart": true, "stop": true, "start": true,
+		"recreate": true, "pull_image": true, "pull_recreate": true,
+		"compose_up": true, "compose_down": true, "compose_restart": true, "compose_pull": true,
+	}
+	if loadingActions[action] {
+		edit := tgbotapi.NewEditMessageText(chatID, query.Message.MessageID, out)
+		edit.ParseMode = "Markdown"
+		edit.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{
+			{tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close")},
+		}}
+		bot.Send(edit)
+	} else {
+		msg := tgbotapi.NewMessage(chatID, out)
+		msg.ParseMode = "Markdown"
+		_, sendErr := bot.Send(msg)
+		if sendErr != nil {
+			log.Printf("Error sending message: %v", sendErr)
+		}
 	}
 	bot.Request(tgbotapi.NewCallback(query.ID, ""))
 }
@@ -1366,65 +1454,86 @@ func monitorEvents() {
 
 func monitorResourceAlerts() {
 	alertedContainers := make(map[string]time.Time)
-	
-	for {
-		time.Sleep(5 * time.Minute)
-		
-		if notifyChatID == 0 {
-			continue
-		}
-		
+	// containers that exceeded threshold on first check, pending confirmation
+	pendingAlerts := make(map[string]bool)
+
+	collectStats := func() map[string][2]float64 {
+		result := make(map[string][2]float64)
 		statsOut, err := runCmd("docker", "stats", "--no-stream", "--format", "{{.Name}}|{{.CPUPerc}}|{{.MemPerc}}")
 		if err != nil {
-			continue
+			return result
 		}
-		
 		for _, line := range strings.Split(statsOut, "\n") {
 			parts := strings.Split(strings.TrimSpace(line), "|")
 			if len(parts) < 3 {
 				continue
 			}
-			
 			name := parts[0]
-			cpuStr := strings.TrimSuffix(parts[1], "%")
-			memStr := strings.TrimSuffix(parts[2], "%")
-			
 			var cpu, mem float64
-			fmt.Sscanf(cpuStr, "%f", &cpu)
-			fmt.Sscanf(memStr, "%f", &mem)
-			
+			fmt.Sscanf(strings.TrimSuffix(parts[1], "%"), "%f", &cpu)
+			fmt.Sscanf(strings.TrimSuffix(parts[2], "%"), "%f", &mem)
+			result[name] = [2]float64{cpu, mem}
+		}
+		return result
+	}
+
+	for {
+		time.Sleep(5 * time.Minute)
+
+		if notifyChatID == 0 {
+			continue
+		}
+
+		first := collectStats()
+
+		// Identify containers above threshold
+		candidates := make(map[string]bool)
+		for name, vals := range first {
+			if vals[0] > 90 || vals[1] > 90 {
+				candidates[name] = true
+			}
+		}
+
+		// Only confirm containers that were already pending from last cycle
+		toAlert := make(map[string][2]float64)
+		for name := range candidates {
+			if pendingAlerts[name] {
+				toAlert[name] = first[name]
+			}
+		}
+
+		// Update pending: only containers that are candidates this cycle
+		pendingAlerts = candidates
+
+		for name, vals := range toAlert {
 			if lastAlert, exists := alertedContainers[name]; exists {
 				if time.Since(lastAlert) < 30*time.Minute {
 					continue
 				}
 			}
-			
-			if cpu > 90 || mem > 90 {
-				icon := getIcon(name)
-				alertType := ""
-				if cpu > 90 && mem > 90 {
-					alertType = fmt.Sprintf("🔥 CPU: %.1f%% | RAM: %.1f%%", cpu, mem)
-				} else if cpu > 90 {
-					alertType = fmt.Sprintf("🔥 CPU: %.1f%%", cpu)
-				} else {
-					alertType = fmt.Sprintf("💾 RAM: %.1f%%", mem)
-				}
-				
-				msg := fmt.Sprintf("⚠️ *Alerta de recursos*\n\n%s *%s*\n%s", icon, name, alertType)
-				m := tgbotapi.NewMessage(notifyChatID, msg)
-				m.ParseMode = "Markdown"
-				
-				keyboard := tgbotapi.NewInlineKeyboardMarkup(
-					tgbotapi.NewInlineKeyboardRow(
-						tgbotapi.NewInlineKeyboardButtonData("🔄 Restart", "restart:"+name),
-						tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+name),
-					),
-				)
-				m.ReplyMarkup = keyboard
-				bot.Send(m)
-				
-				alertedContainers[name] = time.Now()
+
+			cpu, mem := vals[0], vals[1]
+			icon := getIcon(name)
+			var alertType string
+			if cpu > 90 && mem > 90 {
+				alertType = fmt.Sprintf("🔥 CPU: %.1f%% | RAM: %.1f%%", cpu, mem)
+			} else if cpu > 90 {
+				alertType = fmt.Sprintf("🔥 CPU: %.1f%%", cpu)
+			} else {
+				alertType = fmt.Sprintf("💾 RAM: %.1f%%", mem)
 			}
+
+			msg := fmt.Sprintf("⚠️ *Alerta de recursos*\n\n%s *%s*\n%s", icon, name, alertType)
+			m := tgbotapi.NewMessage(notifyChatID, msg)
+			m.ParseMode = "Markdown"
+			m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("🔄 Restart", "restart:"+name),
+					tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+name),
+				),
+			)
+			bot.Send(m)
+			alertedContainers[name] = time.Now()
 		}
 	}
 }
@@ -1580,7 +1689,7 @@ func runImageUpdateCheck() int {
 		m := tgbotapi.NewMessage(notifyChatID, msgText)
 		m.ParseMode = "Markdown"
 
-		// One row per container: [pull only] [recreate]
+		// One row per container: [pull only] [recreate] [pull & recreate]
 		var rows [][]tgbotapi.InlineKeyboardButton
 		for _, c := range containers {
 			recreateLabel := "🔄 Recrear: " + c.name
@@ -1590,6 +1699,9 @@ func runImageUpdateCheck() int {
 			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("⬇️ Solo pull: "+image, "pull_image:"+image),
 				tgbotapi.NewInlineKeyboardButtonData(recreateLabel, "recreate:"+c.name),
+			))
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬆️ Pull & Recrear: "+c.name, "pull_recreate:"+c.name),
 			))
 		}
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
@@ -1894,6 +2006,8 @@ func handleInspectMenu(chatID int64) {
 }
 
 func handleStats(chatID int64) {
+	loadingID := sendLoading(chatID, "Recopilando estadísticas del sistema...")
+	defer deleteMsg(chatID, loadingID)
 	// Get system info
 	dfOut, _ := runCmd("df", "-h", "/")
 	memOut, _ := runCmd("free", "-h")
@@ -2567,6 +2681,8 @@ func generateDockerCompose(chatID int64, userID int64) {
 }
 
 func handleDiagnose(chatID int64) {
+	loadingID := sendLoading(chatID, "Ejecutando diagnóstico...")
+	defer deleteMsg(chatID, loadingID)
 	issues := []string{}
 	
 	// Check stopped containers
