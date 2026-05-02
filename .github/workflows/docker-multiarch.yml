@@ -46,7 +46,7 @@ jobs:
       - name: Get telegram-bot-api version from go.mod
         id: tgapi
         run: |
-          echo "version=$(grep 'telegram-bot-api' go.mod | grep -oP 'v[0-9.]+')" >> "$GITHUB_OUTPUT"
+          echo "version=$(grep 'telegram-bot-api' go.mod | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
 
       - name: Get latest GitHub release tag
         id: latest_release
