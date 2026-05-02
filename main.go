@@ -747,17 +747,32 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	case "compose_up":
-		out, err = runCmd("docker", "compose", "-p", target, "up", "-d")
+		workDir := getComposeWorkDir(target)
+		if workDir != "" {
+			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "up", "-d")
+		} else {
+			out, err = runCmd("docker", "compose", "-p", target, "up", "-d")
+		}
 		if err == nil {
 			out = fmt.Sprintf("✅ Proyecto *%s* iniciado\n```\n%s\n```", target, out)
 		}
 	case "compose_down":
-		out, err = runCmd("docker", "compose", "-p", target, "down")
+		workDir := getComposeWorkDir(target)
+		if workDir != "" {
+			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "down")
+		} else {
+			out, err = runCmd("docker", "compose", "-p", target, "down")
+		}
 		if err == nil {
 			out = fmt.Sprintf("✅ Proyecto *%s* detenido\n```\n%s\n```", target, out)
 		}
 	case "compose_restart":
-		out, err = runCmd("docker", "compose", "-p", target, "restart")
+		workDir := getComposeWorkDir(target)
+		if workDir != "" {
+			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "restart")
+		} else {
+			out, err = runCmd("docker", "compose", "-p", target, "restart")
+		}
 		if err == nil {
 			out = fmt.Sprintf("✅ Proyecto *%s* reiniciado", target)
 		}
@@ -803,7 +818,12 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			return
 		}
 	case "compose_pull":
-		out, err = runCmd("docker", "compose", "-p", target, "pull")
+		workDir := getComposeWorkDir(target)
+		if workDir != "" {
+			out, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "pull")
+		} else {
+			out, err = runCmd("docker", "compose", "-p", target, "pull")
+		}
 		if err == nil {
 			out = fmt.Sprintf("✅ Imágenes de *%s* actualizadas\n```\n%s\n```", target, out)
 		}
@@ -1143,15 +1163,21 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = "✅ Volumen eliminado"
 		}
 	case "update_compose":
-		// Update docker compose project
-		out, err = runCmd("docker", "compose", "-p", target, "pull")
+		workDir := getComposeWorkDir(target)
+		if workDir == "" {
+			out = "❌ No se encontró el directorio del proyecto `" + target + "`"
+			break
+		}
+		_, err = runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "pull")
 		if err == nil {
-			out2, err2 := runCmd("docker", "compose", "-p", target, "up", "-d")
+			out2, err2 := runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "up", "-d")
 			if err2 == nil {
 				out = fmt.Sprintf("✅ Proyecto *%s* actualizado\n```\n%s\n```", target, out2)
 			} else {
-				out = "❌ Error al actualizar: " + err2.Error()
+				out = "❌ Error al hacer up: " + err2.Error()
 			}
+		} else {
+			out = "❌ Error al hacer pull: " + err.Error()
 		}
 	case "recreate":
 		// Recreate single container
@@ -1912,6 +1938,25 @@ func handleStats(chatID int64) {
 		),
 	)
 	bot.Send(msg)
+}
+
+func getComposeWorkDir(project string) string {
+	psOut, _ := runCmd("docker", "ps", "-a", "--filter", "label=com.docker.compose.project="+project, "--format", "{{.Names}}")
+	for _, cname := range strings.Split(strings.TrimSpace(psOut), "\n") {
+		if cname == "" {
+			continue
+		}
+		inspOut, _ := runCmd("docker", "inspect", cname)
+		var inspData []map[string]interface{}
+		if json.Unmarshal([]byte(inspOut), &inspData) == nil && len(inspData) > 0 {
+			if labels, ok := inspData[0]["Config"].(map[string]interface{})["Labels"].(map[string]interface{}); ok {
+				if wd, ok := labels["com.docker.compose.project.working_dir"].(string); ok && wd != "" {
+					return wd
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func handleCompose(chatID int64) {
