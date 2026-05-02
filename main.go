@@ -1532,6 +1532,7 @@ func main() {
 		{Command: "diagnose", Description: "Diagnóstico del sistema"},
 		{Command: "list", Description: "Listar todos los contenedores con estado"},
 		{Command: "checkupdates", Description: "Buscar actualizaciones de imágenes"},
+		{Command: "donate", Description: "Apoya el desarrollo del bot"},
 		{Command: "restart", Description: "Reiniciar contenedor"},
 		{Command: "stop", Description: "Detener contenedor"},
 		{Command: "logs", Description: "Ver logs de contenedor"},
@@ -1678,6 +1679,22 @@ func main() {
 				go handleDiagnose(chatID)
 			case "list":
 				go handleList(chatID)
+			case "donate":
+				msg := tgbotapi.NewMessage(chatID, "☕ *Apoya Botainer*\n\nSi el bot te resulta útil, considera apoyar el desarrollo:\n\n💛 [Buy Me a Coffee](https://buymeacoffee.com/yoniergomez)\n💖 [GitHub Sponsors](https://github.com/sponsors/YonierGomez)\n\nCada contribución ayuda a mantener el proyecto activo. ¡Gracias! 🙏")
+				msg.ParseMode = "Markdown"
+				msg.DisableWebPagePreview = true
+				msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+					tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonURL("☕ Buy Me a Coffee", "https://buymeacoffee.com/yoniergomez"),
+					),
+					tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonURL("💖 GitHub Sponsors", "https://github.com/sponsors/YonierGomez"),
+					),
+					tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+					),
+				)
+				bot.Send(msg)
 			case "checkupdates":
 				go func() {
 					sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
