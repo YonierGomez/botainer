@@ -609,7 +609,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		case "check_updates":
 			go func() {
 				sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
-				runImageUpdateCheck()
+				runImageUpdateCheckWithFeedback(chatID)
 			}()
 		case "list":
 			go handleList(chatID)
@@ -1500,10 +1500,10 @@ func checkUpdates() {
 	}
 }
 
-func runImageUpdateCheck() {
+func runImageUpdateCheck() int {
 	out, err := runCmd("docker", "ps", "-a", "--format", "{{.Names}}|{{.Image}}")
 	if err != nil {
-		return
+		return 0
 	}
 
 	// Build map: image -> list of (containerName, composeProject)
@@ -1535,6 +1535,7 @@ func runImageUpdateCheck() {
 	}
 
 	// Check each unique image once
+	found := 0
 	for image, containers := range imageMap {
 		localDigest, _ := runCmd("docker", "inspect", "--format", "{{index .RepoDigests 0}}", image)
 		localDigest = strings.TrimSpace(localDigest)
@@ -1547,6 +1548,7 @@ func runImageUpdateCheck() {
 		if localDigest == "" || localDigest == newDigest {
 			continue
 		}
+		found++
 
 		// Collect unique compose projects for this image
 		projectSet := make(map[string]bool)
@@ -1595,6 +1597,14 @@ func runImageUpdateCheck() {
 		))
 		m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 		bot.Send(m)
+	}
+	return found
+}
+
+func runImageUpdateCheckWithFeedback(chatID int64) {
+	found := runImageUpdateCheck()
+	if found == 0 {
+		sendMessageWithClose(chatID, "✅ Todas las imágenes están actualizadas")
 	}
 }
 
@@ -1821,7 +1831,7 @@ func main() {
 			case "checkupdates":
 				go func() {
 					sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
-					runImageUpdateCheck()
+					runImageUpdateCheckWithFeedback(chatID)
 				}()
 			}
 		} else if update.CallbackQuery != nil {
