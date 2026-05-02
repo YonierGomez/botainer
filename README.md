@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/YonierGomez/botainer/main/docs/botainer-image.png" alt="Botainer" width="200" />
+  <img src="https://raw.githubusercontent.com/YonierGomez/botainer/main/docs/botainer-image.png" alt="Botainer" width="300" />
 </p>
 
 <h1 align="center">Botainer</h1>
