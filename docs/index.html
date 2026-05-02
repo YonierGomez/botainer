@@ -6,224 +6,175 @@
   <title>Botainer — Docker desde Telegram</title>
   <meta name="description" content="Bot de Telegram para gestionar Docker desde tu móvil. +25 comandos, notificaciones en tiempo real, escrito en Go." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:        #0d1117;
-      --surface:   #161b22;
-      --border:    #30363d;
-      --accent:    #2ea043;
-      --accent2:   #1f6feb;
-      --tg:        #229ed9;
-      --text:      #e6edf3;
-      --muted:     #8b949e;
-      --code-bg:   #1c2128;
+      --bg: #0a0a0a;
+      --bg2: #111111;
+      --bg3: #181818;
+      --border: #2a2a2a;
+      --border2: #333;
+      --amber: #f59e0b;
+      --amber2: #fbbf24;
+      --teal: #2dd4bf;
+      --red: #ef4444;
+      --text: #e8e8e8;
+      --muted: #666;
+      --muted2: #888;
+      --mono: 'Space Mono', monospace;
+      --display: 'Syne', sans-serif;
     }
 
     html { scroll-behavior: smooth; }
 
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: var(--mono);
       background: var(--bg);
       color: var(--text);
       line-height: 1.6;
       overflow-x: hidden;
     }
 
-    /* ── NAV ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.08) 2px, rgba(0,0,0,.08) 4px);
+      pointer-events: none;
+    }
+
     nav {
       position: sticky; top: 0; z-index: 100;
       display: flex; align-items: center; justify-content: space-between;
-      padding: 0 2rem;
-      height: 60px;
-      background: rgba(13,17,23,.85);
-      backdrop-filter: blur(12px);
+      padding: 0 2rem; height: 56px;
+      background: rgba(10,10,10,.92);
+      backdrop-filter: blur(8px);
       border-bottom: 1px solid var(--border);
     }
-    .nav-logo { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.1rem; text-decoration: none; color: var(--text); }
-    .nav-logo span { font-size: 1.4rem; }
-    .nav-links { display: flex; gap: 1.5rem; list-style: none; }
-    .nav-links a { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .2s; }
-    .nav-links a:hover { color: var(--text); }
-    .nav-cta {
-      background: var(--accent); color: #fff; border: none; border-radius: 6px;
-      padding: .45rem 1rem; font-size: .85rem; font-weight: 600; cursor: pointer;
-      text-decoration: none; transition: opacity .2s;
-    }
-    .nav-cta:hover { opacity: .85; }
+    .nav-logo { display: flex; align-items: center; gap: .6rem; font-family: var(--display); font-size: 1.1rem; font-weight: 800; text-decoration: none; color: var(--text); letter-spacing: .02em; }
+    .nav-logo .dot { color: var(--amber); }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; transition: color .2s; }
+    .nav-links a:hover { color: var(--amber); }
+    .nav-cta { font-family: var(--mono); font-size: .75rem; font-weight: 700; color: var(--bg); background: var(--amber); border: none; border-radius: 2px; padding: .4rem 1rem; cursor: pointer; text-decoration: none; letter-spacing: .05em; transition: background .2s; }
+    .nav-cta:hover { background: var(--amber2); }
 
-    /* ── HERO ── */
-    .hero {
-      position: relative;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center;
-      padding: 7rem 1.5rem 5rem;
-      overflow: hidden;
-    }
-    .hero::before {
-      content: '';
-      position: absolute; inset: 0;
-      background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(46,160,67,.15) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: .4rem;
-      background: rgba(46,160,67,.12); border: 1px solid rgba(46,160,67,.3);
-      color: var(--accent); border-radius: 20px;
-      padding: .3rem .9rem; font-size: .8rem; font-weight: 600;
-      margin-bottom: 1.5rem; letter-spacing: .04em;
-    }
-    .hero h1 {
-      font-size: clamp(2.4rem, 6vw, 4rem);
-      font-weight: 800; line-height: 1.15;
-      max-width: 780px;
-    }
-    .hero h1 em { font-style: normal; color: var(--accent); }
-    .hero p {
-      margin-top: 1.2rem;
-      color: var(--muted); font-size: 1.15rem;
-      max-width: 560px;
-    }
-    .hero-actions { display: flex; gap: 1rem; margin-top: 2.5rem; flex-wrap: wrap; justify-content: center; }
-    .btn-primary {
-      background: var(--accent); color: #fff;
-      padding: .75rem 1.8rem; border-radius: 8px;
-      font-weight: 700; font-size: 1rem; text-decoration: none;
-      transition: opacity .2s, transform .15s;
-      display: inline-flex; align-items: center; gap: .5rem;
-    }
-    .btn-primary:hover { opacity: .88; transform: translateY(-1px); }
-    .btn-secondary {
-      background: transparent; color: var(--text);
-      border: 1px solid var(--border);
-      padding: .75rem 1.8rem; border-radius: 8px;
-      font-weight: 600; font-size: 1rem; text-decoration: none;
-      transition: border-color .2s, transform .15s;
-      display: inline-flex; align-items: center; gap: .5rem;
-    }
-    .btn-secondary:hover { border-color: var(--muted); transform: translateY(-1px); }
+    .hero { position: relative; min-height: 92vh; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 4rem; padding: 6rem 4rem 4rem; max-width: 1200px; margin: 0 auto; }
+    .hero-left { position: relative; z-index: 1; }
+    .hero-eyebrow { font-size: .7rem; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 1.5rem; display: flex; align-items: center; gap: .6rem; }
+    .hero-eyebrow::before { content: ''; display: block; width: 32px; height: 1px; background: var(--amber); }
+    .hero h1 { font-family: var(--display); font-size: clamp(3rem, 5vw, 5rem); font-weight: 800; line-height: 1.05; letter-spacing: -.02em; }
+    .hero h1 .line2 { color: var(--amber); display: block; }
+    .hero-desc { margin-top: 1.8rem; color: var(--muted2); font-size: .9rem; line-height: 1.8; max-width: 420px; }
+    .hero-actions { display: flex; gap: 1rem; margin-top: 2.5rem; flex-wrap: wrap; }
+    .btn-primary { font-family: var(--mono); font-size: .8rem; font-weight: 700; color: var(--bg); background: var(--amber); padding: .7rem 1.6rem; border-radius: 2px; text-decoration: none; letter-spacing: .05em; transition: background .2s, transform .15s; display: inline-flex; align-items: center; gap: .5rem; }
+    .btn-primary:hover { background: var(--amber2); transform: translateY(-2px); }
+    .btn-ghost { font-family: var(--mono); font-size: .8rem; font-weight: 700; color: var(--text); background: transparent; border: 1px solid var(--border2); padding: .7rem 1.6rem; border-radius: 2px; text-decoration: none; letter-spacing: .05em; transition: border-color .2s, transform .15s; display: inline-flex; align-items: center; gap: .5rem; }
+    .btn-ghost:hover { border-color: var(--amber); color: var(--amber); transform: translateY(-2px); }
 
-    /* ── STATS BAR ── */
-    .stats-bar {
-      display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap;
-      padding: 2.5rem 1.5rem;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-    .stat { text-align: center; }
-    .stat-num { font-size: 2rem; font-weight: 800; color: var(--text); }
-    .stat-label { font-size: .8rem; color: var(--muted); margin-top: .2rem; }
+    .hero-right { position: relative; z-index: 1; }
+    .terminal { background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; overflow: hidden; box-shadow: 0 32px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(245,158,11,.08); }
+    .terminal-bar { background: var(--bg3); border-bottom: 1px solid var(--border); padding: .6rem 1rem; display: flex; align-items: center; gap: .5rem; }
+    .t-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .t-dot.r { background: #ef4444; }
+    .t-dot.y { background: #f59e0b; }
+    .t-dot.g { background: #22c55e; }
+    .terminal-title { margin-left: auto; margin-right: auto; font-size: .7rem; color: var(--muted); letter-spacing: .08em; }
+    .terminal-body { padding: 1.4rem 1.6rem; font-size: .78rem; line-height: 2; }
+    .t-prompt { color: var(--amber); }
+    .t-cmd { color: var(--text); }
+    .t-out { color: var(--muted2); padding-left: 1rem; }
+    .t-green { color: #22c55e; }
+    .t-teal { color: var(--teal); }
+    .t-red { color: var(--red); }
+    .t-cursor { display: inline-block; width: 8px; height: 14px; background: var(--amber); vertical-align: middle; animation: blink 1s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
 
-    /* ── SECTIONS ── */
-    section { padding: 5rem 1.5rem; max-width: 1100px; margin: 0 auto; }
-    .section-tag {
-      display: inline-block;
-      background: rgba(31,111,235,.12); border: 1px solid rgba(31,111,235,.3);
-      color: var(--accent2); border-radius: 20px;
-      padding: .25rem .8rem; font-size: .75rem; font-weight: 600;
-      letter-spacing: .06em; margin-bottom: 1rem;
-    }
-    h2 { font-size: clamp(1.6rem, 3.5vw, 2.2rem); font-weight: 800; margin-bottom: .6rem; }
-    .subtitle { color: var(--muted); font-size: 1rem; max-width: 520px; }
+    .stats-strip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--bg2); }
+    .stats-inner { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); }
+    .stat-item { padding: 2rem 1.5rem; text-align: center; border-right: 1px solid var(--border); }
+    .stat-item:last-child { border-right: none; }
+    .stat-val { font-family: var(--display); font-size: 2.2rem; font-weight: 800; color: var(--amber); line-height: 1; }
+    .stat-lbl { font-size: .7rem; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; margin-top: .4rem; }
 
-    /* ── FEATURES GRID ── */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 1.2rem; margin-top: 3rem;
-    }
-    .feature-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
-      transition: border-color .2s, transform .2s;
-    }
-    .feature-card:hover { border-color: var(--accent); transform: translateY(-3px); }
-    .feature-icon { font-size: 1.8rem; margin-bottom: .8rem; }
-    .feature-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
-    .feature-card p { font-size: .875rem; color: var(--muted); }
+    .section { padding: 6rem 4rem; max-width: 1200px; margin: 0 auto; }
+    .section-header { margin-bottom: 3.5rem; }
+    .section-num { font-size: .7rem; color: var(--amber); letter-spacing: .2em; text-transform: uppercase; margin-bottom: .8rem; display: flex; align-items: center; gap: .6rem; }
+    .section-num::before { content: ''; display: block; width: 24px; height: 1px; background: var(--amber); }
+    .section h2 { font-family: var(--display); font-size: clamp(1.8rem, 3vw, 2.6rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+    .section-sub { color: var(--muted2); font-size: .85rem; margin-top: .6rem; line-height: 1.7; }
 
-    /* ── COMMANDS ── */
-    .commands-section { background: var(--surface); border-radius: 16px; padding: 2.5rem; margin-top: 3rem; }
-    .cmd-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2rem; margin-top: 1.5rem; }
-    .cmd-group h4 { font-size: .8rem; font-weight: 700; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin-bottom: .8rem; }
-    .cmd-list { list-style: none; display: flex; flex-direction: column; gap: .4rem; }
-    .cmd-list li {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: .82rem; color: var(--accent);
-      background: var(--code-bg); border-radius: 5px;
-      padding: .25rem .6rem;
-    }
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+    .feat { background: var(--bg); padding: 2rem; transition: background .2s; position: relative; overflow: hidden; }
+    .feat::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 0; background: var(--amber); transition: height .3s ease; }
+    .feat:hover { background: var(--bg2); }
+    .feat:hover::before { height: 100%; }
+    .feat-icon { font-size: 1.6rem; margin-bottom: 1rem; }
+    .feat h3 { font-size: .9rem; font-weight: 700; margin-bottom: .5rem; letter-spacing: .02em; }
+    .feat p { font-size: .78rem; color: var(--muted2); line-height: 1.7; font-family: var(--mono); }
 
-    /* ── INSTALL ── */
-    .install-steps { display: flex; flex-direction: column; gap: 1.5rem; margin-top: 2.5rem; }
-    .step { display: flex; gap: 1.2rem; align-items: flex-start; }
-    .step-num {
-      flex-shrink: 0;
-      width: 32px; height: 32px;
-      background: var(--accent2); border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 700; font-size: .85rem;
-    }
-    .step-body h4 { font-weight: 700; margin-bottom: .4rem; }
-    .step-body p { color: var(--muted); font-size: .9rem; }
-    pre {
-      background: var(--code-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem 1.2rem;
-      overflow-x: auto;
-      margin-top: .6rem;
-    }
-    code { font-family: 'JetBrains Mono', monospace; font-size: .82rem; color: #79c0ff; }
-    pre code { color: var(--text); }
+    .commands-wrap { background: var(--bg2); border: 1px solid var(--border); padding: 2.5rem; }
+    .cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 2rem; margin-top: 2rem; }
+    .cmd-group-title { font-size: .65rem; letter-spacing: .15em; text-transform: uppercase; color: var(--amber); margin-bottom: .8rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border); }
+    .cmd-list { list-style: none; display: flex; flex-direction: column; gap: .3rem; }
+    .cmd-list li { font-size: .75rem; color: var(--teal); padding: .2rem 0; }
+    .cmd-list li::before { content: '$ '; color: var(--muted); }
 
-    /* ── CI BADGE SECTION ── */
-    .ci-section {
-      background: linear-gradient(135deg, rgba(31,111,235,.08) 0%, rgba(46,160,67,.08) 100%);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 2.5rem;
-      margin-top: 3rem;
-    }
-    .ci-section h3 { font-size: 1.2rem; font-weight: 700; margin-bottom: .5rem; }
-    .ci-section p { color: var(--muted); font-size: .9rem; margin-bottom: 1.2rem; }
-    .badges { display: flex; flex-wrap: wrap; gap: .6rem; }
-    .badge-img { height: 22px; border-radius: 4px; }
+    .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; align-items: start; }
+    .steps { display: flex; flex-direction: column; gap: 2rem; }
+    .step { display: flex; gap: 1.2rem; }
+    .step-n { flex-shrink: 0; font-family: var(--display); font-size: 3rem; font-weight: 800; color: var(--border2); line-height: 1; user-select: none; }
+    .step-content h4 { font-size: .85rem; font-weight: 700; margin-bottom: .4rem; letter-spacing: .04em; }
+    .step-content p { font-size: .78rem; color: var(--muted2); line-height: 1.7; }
+    .code-block { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--amber); padding: 1.2rem 1.4rem; margin-top: .8rem; overflow-x: auto; }
+    .code-block code { font-family: var(--mono); font-size: .75rem; color: var(--text); line-height: 1.8; white-space: pre; }
+    .code-block .c-comment { color: var(--muted); }
+    .code-block .c-cmd { color: var(--teal); }
 
-    /* ── ICONS GRID ── */
-    .icons-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-      gap: .8rem; margin-top: 2rem;
-    }
-    .icon-item {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: .7rem 1rem;
-      display: flex; align-items: center; gap: .6rem;
-      font-size: .85rem;
-    }
-    .icon-item span:first-child { font-size: 1.2rem; }
+    .ci-box { background: var(--bg2); border: 1px solid var(--border); padding: 2.5rem; margin-top: 2rem; }
+    .ci-box h3 { font-size: .9rem; font-weight: 700; margin-bottom: .5rem; }
+    .ci-box p { font-size: .78rem; color: var(--muted2); line-height: 1.7; margin-bottom: 1.2rem; }
+    .badges { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; }
+    .badges img { height: 20px; }
+    .pipeline { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-top: 1.5rem; }
+    .pipe-step { background: var(--bg3); border: 1px solid var(--border); padding: .5rem 1rem; font-size: .72rem; color: var(--muted2); position: relative; }
+    .pipe-step .pipe-label { color: var(--amber); font-weight: 700; display: block; font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; }
+    .pipe-arrow { color: var(--border2); font-size: .9rem; padding: 0 .3rem; }
 
-    /* ── FOOTER ── */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 2.5rem 1.5rem;
-      text-align: center;
-      color: var(--muted);
-      font-size: .85rem;
-    }
-    footer a { color: var(--muted); text-decoration: none; }
-    footer a:hover { color: var(--text); }
-    .footer-links { display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .sponsor-box { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--amber); padding: 2.5rem; margin-top: 2rem; text-align: center; }
+    .sponsor-box p { font-size: .82rem; color: var(--muted2); line-height: 1.8; margin-bottom: 1.8rem; }
+    .sponsor-btns { display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap; }
 
-    /* ── RESPONSIVE ── */
-    @media (max-width: 640px) {
+    footer { border-top: 1px solid var(--border); padding: 2.5rem 4rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+    .footer-brand { font-family: var(--display); font-weight: 800; font-size: .95rem; color: var(--muted); }
+    .footer-brand .dot { color: var(--amber); }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { font-size: .72rem; color: var(--muted); text-decoration: none; letter-spacing: .08em; text-transform: uppercase; transition: color .2s; }
+    .footer-links a:hover { color: var(--amber); }
+    .footer-copy { font-size: .7rem; color: var(--muted); }
+
+    .divider { border: none; border-top: 1px solid var(--border); }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+    .hero-left { animation: fadeUp .7s ease both; }
+    .hero-right { animation: fadeUp .7s .15s ease both; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; padding: 4rem 2rem 3rem; min-height: auto; gap: 3rem; }
+      .stats-inner { grid-template-columns: repeat(3, 1fr); }
+      .stat-item:nth-child(3) { border-right: none; }
+      .features-grid { grid-template-columns: 1fr 1fr; }
+      .install-grid { grid-template-columns: 1fr; }
+      .section { padding: 4rem 2rem; }
+      footer { padding: 2rem; }
+    }
+    @media (max-width: 600px) {
       .nav-links { display: none; }
-      .stats-bar { gap: 1.5rem; }
+      .features-grid { grid-template-columns: 1fr; }
+      .stats-inner { grid-template-columns: repeat(2, 1fr); }
+      .stat-item:nth-child(2) { border-right: none; }
+      .stat-item:nth-child(3) { border-right: 1px solid var(--border); }
     }
   </style>
 </head>
@@ -231,11 +182,9 @@
 
 <!-- NAV -->
 <nav>
-  <a class="nav-logo" href="#">
-    <span>🐳</span> Botainer
-  </a>
+  <a class="nav-logo" href="#">BOTAINER<span class="dot">.</span></a>
   <ul class="nav-links">
-    <li><a href="#features">Características</a></li>
+    <li><a href="#features">Features</a></li>
     <li><a href="#commands">Comandos</a></li>
     <li><a href="#install">Instalación</a></li>
     <li><a href="#ci">CI/CD</a></li>
@@ -246,237 +195,210 @@
 
 <!-- HERO -->
 <header class="hero">
-  <div class="hero-badge">✨ Escrito en Go · Multi-arch · Open Source</div>
-  <h1>Gestiona <em>Docker</em> desde<br/>tu Telegram</h1>
-  <p>Más de 25 comandos, notificaciones en tiempo real, Docker Compose, logs, diagnóstico y mucho más — todo desde tu móvil.</p>
-  <div class="hero-actions">
-    <a class="btn-primary" href="https://github.com/YonierGomez/botainer" target="_blank">
-      ⭐ Ver en GitHub
-    </a>
-    <a class="btn-secondary" href="#install">
-      🚀 Instalación rápida
-    </a>
+  <div class="hero-left">
+    <div class="hero-eyebrow">Open Source · Escrito en Go</div>
+    <h1>Docker en tu<br/><span class="line2">bolsillo.</span></h1>
+    <p class="hero-desc">Bot de Telegram para gestionar contenedores Docker desde cualquier lugar. +25 comandos, notificaciones en tiempo real, Docker Compose, diagnóstico automático.</p>
+    <div class="hero-actions">
+      <a class="btn-primary" href="https://github.com/YonierGomez/botainer" target="_blank">⭐ Ver en GitHub</a>
+      <a class="btn-ghost" href="#install">→ Instalación rápida</a>
+    </div>
+  </div>
+  <div class="hero-right">
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="t-dot r"></div><div class="t-dot y"></div><div class="t-dot g"></div>
+        <span class="terminal-title">botainer — telegram</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-prompt">@mybot</span> <span class="t-cmd">/ps</span></div>
+        <div class="t-out">🐳 Contenedores activos (4)</div>
+        <div class="t-out">━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
+        <div class="t-out"><span class="t-green">● </span>🐘 postgres CPU 0.2% RAM 128MB</div>
+        <div class="t-out"><span class="t-green">● </span>🔴 redis CPU 0.0% RAM 12MB</div>
+        <div class="t-out"><span class="t-green">● </span>🟢 nginx CPU 0.1% RAM 18MB</div>
+        <div class="t-out"><span class="t-red">● </span>🍃 mongo CPU 0.0% RAM 64MB ⚠</div>
+        <br/>
+        <div><span class="t-prompt">@mybot</span> <span class="t-cmd">/diagnose</span></div>
+        <div class="t-out"><span class="t-teal">✓</span> 3 contenedores healthy</div>
+        <div class="t-out"><span class="t-red">✗</span> mongo: unhealthy — revisar logs</div>
+        <br/>
+        <div><span class="t-prompt">@mybot</span> <span class="t-cursor"></span></div>
+      </div>
+    </div>
   </div>
 </header>
 
 <!-- STATS -->
-<div class="stats-bar">
-  <div class="stat"><div class="stat-num">25+</div><div class="stat-label">Comandos</div></div>
-  <div class="stat"><div class="stat-num">40+</div><div class="stat-label">Iconos de servicios</div></div>
-  <div class="stat"><div class="stat-num">~20MB</div><div class="stat-label">Uso de RAM</div></div>
-  <div class="stat"><div class="stat-num">&lt;1s</div><div class="stat-label">Tiempo de respuesta</div></div>
-  <div class="stat"><div class="stat-num">Go</div><div class="stat-label">Lenguaje</div></div>
+<div class="stats-strip">
+  <div class="stats-inner">
+    <div class="stat-item"><div class="stat-val">25+</div><div class="stat-lbl">Comandos</div></div>
+    <div class="stat-item"><div class="stat-val">40+</div><div class="stat-lbl">Iconos</div></div>
+    <div class="stat-item"><div class="stat-val">~20MB</div><div class="stat-lbl">RAM</div></div>
+    <div class="stat-item"><div class="stat-val">&lt;1s</div><div class="stat-lbl">Respuesta</div></div>
+    <div class="stat-item"><div class="stat-val">Go</div><div class="stat-lbl">Lenguaje</div></div>
+  </div>
 </div>
 
 <!-- FEATURES -->
-<section id="features">
-  <div class="section-tag">CARACTERÍSTICAS</div>
-  <h2>Todo lo que necesitas para gestionar Docker</h2>
-  <p class="subtitle">Desde monitoreo en tiempo real hasta creación de contenedores paso a paso.</p>
-
+<section class="section" id="features">
+  <div class="section-header">
+    <div class="section-num">01 — Características</div>
+    <h2>Todo lo que necesitas<br/>para gestionar Docker.</h2>
+    <p class="section-sub">Desde monitoreo en tiempo real hasta creación de contenedores paso a paso.</p>
+  </div>
   <div class="features-grid">
-    <div class="feature-card">
-      <div class="feature-icon">📊</div>
-      <h3>Monitoreo en tiempo real</h3>
-      <p>CPU, RAM y healthchecks de cada contenedor con actualización instantánea.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🔔</div>
-      <h3>Notificaciones automáticas</h3>
-      <p>Alertas de inicio, caída, reinicio y pausa de contenedores sin configuración extra.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">📁</div>
-      <h3>Docker Compose completo</h3>
-      <p>Up, Down, Restart, Pull y PS por proyecto, con detección automática.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🛠️</div>
-      <h3>Crear contenedores</h3>
-      <p>Asistente paso a paso para Docker Run y Compose. Genera el comando o YAML listo para usar.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">📜</div>
-      <h3>Logs avanzados</h3>
-      <p>Resaltado de errores y warnings, filtros, refresh y descarga como archivo .log.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🔍</div>
-      <h3>Búsqueda universal</h3>
-      <p>Busca en contenedores, imágenes y volúmenes con un solo comando.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">⭐</div>
-      <h3>Favoritos</h3>
-      <p>Acceso rápido a los contenedores que más usas, persistente por usuario.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🔐</div>
-      <h3>Seguridad por whitelist</h3>
-      <p>Solo los usuarios autorizados pueden interactuar con el bot.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🔧</div>
-      <h3>Diagnóstico automático</h3>
-      <p>Detecta contenedores caídos, unhealthy, alto CPU e imágenes sin usar.</p>
-    </div>
+    <div class="feat"><div class="feat-icon">📊</div><h3>Monitoreo en tiempo real</h3><p>CPU, RAM y healthchecks de cada contenedor con actualización instantánea.</p></div>
+    <div class="feat"><div class="feat-icon">🔔</div><h3>Notificaciones automáticas</h3><p>Alertas de inicio, caída, reinicio y pausa sin configuración extra.</p></div>
+    <div class="feat"><div class="feat-icon">📁</div><h3>Docker Compose completo</h3><p>Up, Down, Restart, Pull y PS por proyecto con detección automática.</p></div>
+    <div class="feat"><div class="feat-icon">🛠️</div><h3>Crear contenedores</h3><p>Asistente paso a paso para Docker Run y Compose. Genera el comando o YAML listo para usar.</p></div>
+    <div class="feat"><div class="feat-icon">📜</div><h3>Logs avanzados</h3><p>Resaltado de errores, filtros, refresh y descarga como archivo .log.</p></div>
+    <div class="feat"><div class="feat-icon">🔧</div><h3>Diagnóstico automático</h3><p>Detecta contenedores caídos, unhealthy, alto CPU e imágenes sin usar.</p></div>
+    <div class="feat"><div class="feat-icon">🔍</div><h3>Búsqueda universal</h3><p>Busca en contenedores, imágenes y volúmenes con un solo comando.</p></div>
+    <div class="feat"><div class="feat-icon">⭐</div><h3>Favoritos</h3><p>Acceso rápido a los contenedores que más usas, persistente por usuario.</p></div>
+    <div class="feat"><div class="feat-icon">🔐</div><h3>Seguridad por whitelist</h3><p>Solo los usuarios autorizados pueden interactuar con el bot.</p></div>
   </div>
 </section>
+
+<hr class="divider" />
 
 <!-- COMMANDS -->
-<section id="commands">
-  <div class="section-tag">COMANDOS</div>
-  <h2>24 comandos listos para usar</h2>
-  <p class="subtitle">Se registran automáticamente en BotFather al iniciar el bot.</p>
-
-  <div class="commands-section">
-    <div class="cmd-groups">
-      <div class="cmd-group">
-        <h4>Básicos</h4>
-        <ul class="cmd-list">
-          <li>/start</li>
-          <li>/ps</li>
-          <li>/running</li>
-          <li>/stats</li>
-        </ul>
+<section class="section" id="commands">
+  <div class="section-header">
+    <div class="section-num">02 — Comandos</div>
+    <h2>25 comandos listos<br/>para usar.</h2>
+    <p class="section-sub">Se registran automáticamente en BotFather al iniciar el bot.</p>
+  </div>
+  <div class="commands-wrap">
+    <div class="cmd-grid">
+      <div>
+        <div class="cmd-group-title">Básicos</div>
+        <ul class="cmd-list"><li>/start</li><li>/list</li><li>/ps</li><li>/running</li><li>/stats</li></ul>
       </div>
-      <div class="cmd-group">
-        <h4>Gestión</h4>
-        <ul class="cmd-list">
-          <li>/restart</li>
-          <li>/stop</li>
-          <li>/start_container</li>
-          <li>/pause</li>
-          <li>/unpause</li>
-          <li>/create</li>
-        </ul>
+      <div>
+        <div class="cmd-group-title">Gestión</div>
+        <ul class="cmd-list"><li>/restart</li><li>/stop</li><li>/pause</li><li>/unpause</li><li>/create</li></ul>
       </div>
-      <div class="cmd-group">
-        <h4>Avanzados</h4>
-        <ul class="cmd-list">
-          <li>/compose</li>
-          <li>/exec</li>
-          <li>/inspect</li>
-          <li>/search</li>
-          <li>/env</li>
-        </ul>
+      <div>
+        <div class="cmd-group-title">Avanzados</div>
+        <ul class="cmd-list"><li>/compose</li><li>/exec</li><li>/inspect</li><li>/search</li><li>/env</li></ul>
       </div>
-      <div class="cmd-group">
-        <h4>Recursos</h4>
-        <ul class="cmd-list">
-          <li>/images</li>
-          <li>/volumes</li>
-          <li>/networks</li>
-          <li>/prune</li>
-          <li>/updateall</li>
-        </ul>
+      <div>
+        <div class="cmd-group-title">Recursos</div>
+        <ul class="cmd-list"><li>/images</li><li>/volumes</li><li>/networks</li><li>/prune</li><li>/updateall</li></ul>
       </div>
-      <div class="cmd-group">
-        <h4>Utilidades</h4>
-        <ul class="cmd-list">
-          <li>/favorites</li>
-          <li>/addfav</li>
-          <li>/history</li>
-          <li>/diagnose</li>
-          <li>/logs</li>
-        </ul>
+      <div>
+        <div class="cmd-group-title">Utilidades</div>
+        <ul class="cmd-list"><li>/checkupdates</li><li>/favorites</li><li>/history</li><li>/diagnose</li><li>/donate</li></ul>
       </div>
     </div>
   </div>
 </section>
+
+<hr class="divider" />
 
 <!-- INSTALL -->
-<section id="install">
-  <div class="section-tag">INSTALACIÓN</div>
-  <h2>En marcha en 3 pasos</h2>
-  <p class="subtitle">Solo necesitas Docker, Docker Compose y un token de Telegram.</p>
+<section class="section" id="install">
+  <div class="section-header">
+    <div class="section-num">03 — Instalación</div>
+    <h2>En marcha<br/>en 3 pasos.</h2>
+    <p class="section-sub">Solo necesitas Docker, Docker Compose y un token de Telegram.</p>
+  </div>
+  <div class="install-grid">
+    <div class="steps">
+      <div class="step">
+        <div class="step-n">01</div>
+        <div class="step-content"><h4>Clonar el repositorio</h4><p>Descarga el proyecto en tu servidor Linux.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-n">02</div>
+        <div class="step-content"><h4>Configurar el token</h4><p>Copia el archivo de ejemplo y añade tu token de <a href="https://t.me/botfather" style="color:var(--amber);text-decoration:none">@BotFather</a>.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-n">03</div>
+        <div class="step-content"><h4>Iniciar el bot</h4><p>Docker construye la imagen y arranca el contenedor automáticamente.</p></div>
+      </div>
+    </div>
+    <div>
+      <div class="code-block">
+        <code><span class="c-comment"># 1. Clonar</span>
+<span class="c-cmd">git clone</span> https://github.com/YonierGomez/botainer.git
+<span class="c-cmd">cd</span> botainer
 
-  <div class="install-steps">
-    <div class="step">
-      <div class="step-num">1</div>
-      <div class="step-body">
-        <h4>Clonar el repositorio</h4>
-        <p>Descarga el proyecto en tu servidor.</p>
-        <pre><code>git clone https://github.com/YonierGomez/botainer.git
-cd botainer</code></pre>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-num">2</div>
-      <div class="step-body">
-        <h4>Configurar el token</h4>
-        <p>Copia el archivo de ejemplo y añade tu token de <a href="https://t.me/botfather" style="color:var(--tg)">@BotFather</a>.</p>
-        <pre><code>cp .env.example .env
-# Edita .env y añade tu TELEGRAM_BOT_TOKEN</code></pre>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-num">3</div>
-      <div class="step-body">
-        <h4>Iniciar el bot</h4>
-        <p>Docker construye la imagen y arranca el contenedor automáticamente.</p>
-        <pre><code>docker compose up -d --build
-docker logs -f botainer   # Deberías ver: Bot iniciado: @tu_bot</code></pre>
+<span class="c-comment"># 2. Configurar token</span>
+<span class="c-cmd">cp</span> .env.example .env
+<span class="c-comment"># Edita .env → TELEGRAM_BOT_TOKEN=tu_token</span>
+
+<span class="c-comment"># 3. Iniciar</span>
+<span class="c-cmd">docker compose up</span> -d --build
+<span class="c-cmd">docker logs</span> -f botainer
+<span class="c-comment"># → Bot iniciado: @tu_bot</span></code>
       </div>
     </div>
   </div>
 </section>
 
-
+<hr class="divider" />
 
 <!-- CI/CD -->
-<section id="ci">
-  <div class="section-tag">CI / CD</div>
-  <h2>Build multi-arch automatizado</h2>
-  <p class="subtitle">Pipeline semanal que detecta nuevas versiones de Alpine y publica imágenes para amd64 y arm64 sin QEMU.</p>
-
-  <div class="ci-section">
-    <h3>🔄 Docker Multi-Arch CI</h3>
+<section class="section" id="ci">
+  <div class="section-header">
+    <div class="section-num">04 — CI/CD</div>
+    <h2>Build multi-arch<br/>automatizado.</h2>
+    <p class="section-sub">Pipeline semanal que detecta nuevas versiones de Alpine y publica imágenes para amd64 y arm64 sin QEMU.</p>
+  </div>
+  <div class="ci-box">
+    <h3>Docker Multi-Arch CI</h3>
     <p>El workflow se ejecuta cada lunes a las 08:00 UTC. Compara la versión de Alpine con el último release y, si hay cambios, construye en runners nativos, fusiona el manifiesto multi-arch y crea un GitHub Release con changelog.</p>
     <div class="badges">
-      <img class="badge-img" src="https://img.shields.io/github/actions/workflow/status/YonierGomez/botainer/docker-multiarch.yml?label=Docker%20CI&style=flat-square" alt="CI status" />
-      <img class="badge-img" src="https://img.shields.io/docker/pulls/yoniergomez/botainer?style=flat-square&label=Docker%20Pulls" alt="Docker Pulls" />
-      <img class="badge-img" src="https://img.shields.io/github/v/release/YonierGomez/botainer?style=flat-square" alt="Latest release" />
+      <img src="https://img.shields.io/github/actions/workflow/status/YonierGomez/botainer/docker-multiarch.yml?label=Docker%20CI&style=flat-square" alt="CI" />
+      <img src="https://img.shields.io/docker/pulls/yoniergomez/botainer?style=flat-square&label=Docker%20Pulls" alt="Pulls" />
+      <img src="https://img.shields.io/github/v/release/YonierGomez/botainer?style=flat-square" alt="Release" />
+      <img src="https://img.shields.io/github/stars/YonierGomez/botainer?style=flat-square" alt="Stars" />
     </div>
-
-    <pre style="margin-top:1.2rem"><code># Fases del pipeline
-1. check-version  → Detecta si Alpine cambió
-2. build          → Compila en ubuntu-latest (amd64) y ubuntu-24.04-arm (arm64)
-3. build-and-push → Fusiona digests en manifiesto multi-arch
-4. release        → Crea GitHub Release con changelog de Alpine</code></pre>
+    <div class="pipeline">
+      <div class="pipe-step"><span class="pipe-label">Step 1</span>check-version</div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><span class="pipe-label">Step 2</span>build amd64</div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><span class="pipe-label">Step 2</span>build arm64</div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><span class="pipe-label">Step 3</span>merge manifest</div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><span class="pipe-label">Step 4</span>release</div>
+    </div>
   </div>
 </section>
 
+<hr class="divider" />
+
 <!-- SPONSOR -->
-<section id="sponsor" style="text-align:center;">
-  <div class="section-tag">APOYA EL PROYECTO</div>
-  <h2>¿Te resulta útil?</h2>
-  <p class="subtitle" style="margin:0 auto 2rem;">Si Botainer te ahorra tiempo, considera apoyar el desarrollo. Cada contribución ayuda a mantener el proyecto activo.</p>
-  <div style="display:flex;justify-content:center;gap:1rem;flex-wrap:wrap;">
-    <a href="https://buymeacoffee.com/yoniergomez" target="_blank"
-       style="display:inline-flex;align-items:center;gap:.6rem;background:#FFDD00;color:#000;font-weight:700;padding:.75rem 1.6rem;border-radius:8px;text-decoration:none;font-size:.95rem;transition:opacity .2s;"
-       onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-      ☕ Buy Me a Coffee
-    </a>
-    <a href="https://github.com/sponsors/YonierGomez" target="_blank"
-       style="display:inline-flex;align-items:center;gap:.6rem;background:#EA4AAA;color:#fff;font-weight:700;padding:.75rem 1.6rem;border-radius:8px;text-decoration:none;font-size:.95rem;transition:opacity .2s;"
-       onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-      💖 GitHub Sponsors
-    </a>
+<section class="section" id="sponsor">
+  <div class="section-header">
+    <div class="section-num">05 — Apoya el proyecto</div>
+    <h2>¿Te resulta útil?</h2>
+    <p class="section-sub">Si Botainer te ahorra tiempo, considera apoyar el desarrollo. Cada contribución ayuda a mantener el proyecto activo.</p>
+  </div>
+  <div class="sponsor-box">
+    <p>El proyecto es open source y gratuito. Si lo usas en producción o te ha sido de ayuda,<br/>un café o una sponsorship hace la diferencia. ¡Gracias! 🙏</p>
+    <div class="sponsor-btns">
+      <a class="btn-primary" href="https://buymeacoffee.com/yoniergomez" target="_blank">☕ Buy Me a Coffee</a>
+      <a class="btn-ghost" href="https://github.com/sponsors/YonierGomez" target="_blank">💖 GitHub Sponsors</a>
+    </div>
   </div>
 </section>
 
 <!-- FOOTER -->
 <footer>
+  <div class="footer-brand">BOTAINER<span class="dot">.</span></div>
   <div class="footer-links">
     <a href="https://github.com/YonierGomez/botainer" target="_blank">GitHub</a>
     <a href="https://github.com/YonierGomez/botainer/issues" target="_blank">Issues</a>
-    <a href="https://github.com/YonierGomez/botainer/blob/main/LICENSE" target="_blank">MIT License</a>
     <a href="https://hub.docker.com/r/yoniergomez/botainer" target="_blank">Docker Hub</a>
-    <a href="https://buymeacoffee.com/yoniergomez" target="_blank">☕ Buy Me a Coffee</a>
-    <a href="https://github.com/sponsors/YonierGomez" target="_blank">💖 GitHub Sponsors</a>
+    <a href="https://github.com/YonierGomez/botainer/blob/main/LICENSE" target="_blank">MIT License</a>
+    <a href="https://buymeacoffee.com/yoniergomez" target="_blank">☕ Sponsor</a>
   </div>
-  <p>Hecho para la comunidad Docker · <a href="https://yonier.com" target="_blank">yonier.com</a></p>
+  <div class="footer-copy">Hecho para la comunidad Docker · <a href="https://yonier.com" target="_blank" style="color:var(--muted);text-decoration:none">yonier.com</a></div>
 </footer>
 
 </body>
