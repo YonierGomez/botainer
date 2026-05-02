@@ -469,7 +469,7 @@ func handleRunning(chatID int64) {
 }
 
 func handleList(chatID int64) {
-	out, err := runCmd("docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}|{{.Image}}")
+	out, err := runCmd("docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}")
 	if err != nil {
 		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
 		return
@@ -481,44 +481,45 @@ func handleList(chatID int64) {
 		return
 	}
 
-	closeBtn := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
-
-	var sb strings.Builder
-	sb.WriteString("🐳 *Contenedores*\n\n")
-	for _, line := range lines {
-		parts := strings.Split(line, "|")
-		if len(parts) < 3 {
+	var keyboard [][]tgbotapi.InlineKeyboardButton
+	for i := 0; i < len(lines); i += 2 {
+		parts1 := strings.SplitN(lines[i], "|", 2)
+		if len(parts1) < 2 {
 			continue
 		}
-		name, status, image := parts[0], parts[1], parts[2]
-		icon := getIcon(name)
-		dot := "🔴"
-		if strings.Contains(status, "Up") {
-			dot = "🟢"
-		} else if strings.Contains(status, "Paused") {
-			dot = "🟡"
+		name1, status1 := parts1[0], parts1[1]
+		dot1 := "🔴"
+		if strings.Contains(status1, "Up") {
+			dot1 = "🟢"
+		} else if strings.Contains(status1, "Paused") {
+			dot1 = "🟡"
 		}
-		entry := fmt.Sprintf("%s %s *%s*\n  %s\n  %s\n\n", dot, icon, name, status, image)
-		// Flush chunk if adding this entry would exceed Telegram's limit
-		if sb.Len()+len(entry) > 4000 {
-			msg := tgbotapi.NewMessage(chatID, sb.String())
-			msg.ParseMode = "Markdown"
-			bot.Send(msg)
-			sb.Reset()
+		row := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(dot1+" "+getIcon(name1)+" "+name1, "inspect:"+name1),
 		}
-		sb.WriteString(entry)
+		if i+1 < len(lines) {
+			parts2 := strings.SplitN(lines[i+1], "|", 2)
+			if len(parts2) >= 2 {
+				name2, status2 := parts2[0], parts2[1]
+				dot2 := "🔴"
+				if strings.Contains(status2, "Up") {
+					dot2 = "🟢"
+				} else if strings.Contains(status2, "Paused") {
+					dot2 = "🟡"
+				}
+				row = append(row, tgbotapi.NewInlineKeyboardButtonData(dot2+" "+getIcon(name2)+" "+name2, "inspect:"+name2))
+			}
+		}
+		keyboard = append(keyboard, row)
 	}
+	keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
 
-	if sb.Len() > 0 {
-		msg := tgbotapi.NewMessage(chatID, sb.String())
-		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = closeBtn
-		bot.Send(msg)
-	}
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🐳 *Contenedores* (%d)", len(lines)))
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboard...)
+	bot.Send(msg)
 }
 
 func handleGrid(chatID int64, title, action string) {
