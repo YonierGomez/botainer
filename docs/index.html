@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Botainer — Docker desde Telegram</title>
   <meta name="description" content="Bot de Telegram para gestionar Docker desde tu móvil. +25 comandos, notificaciones en tiempo real, escrito en Go." />
+  <link rel="icon" type="image/png" href="botainer-image.png" />
+  <meta property="og:title" content="Botainer — Docker desde Telegram" />
+  <meta property="og:description" content="Bot de Telegram para gestionar Docker desde tu móvil. +25 comandos, notificaciones en tiempo real, escrito en Go." />
+  <meta property="og:image" content="botainer-image.png" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="botainer-image.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
   <style>
@@ -53,6 +60,7 @@
       border-bottom: 1px solid var(--border);
     }
     .nav-logo { display: flex; align-items: center; gap: .6rem; font-family: var(--display); font-size: 1.1rem; font-weight: 800; text-decoration: none; color: var(--text); letter-spacing: .02em; }
+    .nav-logo img { width: 28px; height: 28px; object-fit: contain; border-radius: 4px; }
     .nav-logo .dot { color: var(--amber); }
     .nav-links { display: flex; gap: 2rem; list-style: none; }
     .nav-links a { color: var(--muted); text-decoration: none; font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; transition: color .2s; }
@@ -182,7 +190,7 @@
 
 <!-- NAV -->
 <nav>
-  <a class="nav-logo" href="#">BOTAINER<span class="dot">.</span></a>
+  <a class="nav-logo" href="#"><img src="botainer-image.png" alt="Botainer logo" />BOTAINER<span class="dot">.</span></a>
   <ul class="nav-links">
     <li><a href="#features">Features</a></li>
     <li><a href="#commands">Comandos</a></li>
@@ -196,6 +204,7 @@
 <!-- HERO -->
 <header class="hero">
   <div class="hero-left">
+    <img class="hero-logo" src="botainer-image.png" alt="Botainer" />
     <div class="hero-eyebrow">Open Source · Escrito en Go</div>
     <h1>Docker en tu<br/><span class="line2">bolsillo.</span></h1>
     <p class="hero-desc">Bot de Telegram para gestionar contenedores Docker desde cualquier lugar. +25 comandos, notificaciones en tiempo real, Docker Compose, diagnóstico automático.</p>
