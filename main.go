@@ -1163,6 +1163,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = "✅ Volumen eliminado"
 		}
 	case "update_compose":
+		// target is the compose project name — find working dir and do pull + up -d
 		workDir := getComposeWorkDir(target)
 		if workDir == "" {
 			out = "❌ No se encontró el directorio del proyecto `" + target + "`"
@@ -1172,7 +1173,10 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		if err == nil {
 			out2, err2 := runCmd("docker", "compose", "--project-directory", workDir, "-p", target, "up", "-d")
 			if err2 == nil {
-				out = fmt.Sprintf("✅ Proyecto *%s* actualizado\n```\n%s\n```", target, out2)
+				out = fmt.Sprintf("✅ Proyecto *%s* actualizado", target)
+				if out2 != "" {
+					out += "\n```\n" + out2 + "\n```"
+				}
 			} else {
 				out = "❌ Error al hacer up: " + err2.Error()
 			}
@@ -1180,7 +1184,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = "❌ Error al hacer pull: " + err.Error()
 		}
 	case "recreate":
-		// Recreate single container
+		// target is a container name — pull image then restart (works for any container)
 		inspectOut, _ := runCmd("docker", "inspect", target)
 		var image string
 		var inspectData []map[string]interface{}
@@ -1191,16 +1195,18 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				}
 			}
 		}
-		
-		if image != "" {
-			runCmd("docker", "stop", target)
-			runCmd("docker", "rm", target)
-			out, err = runCmd("docker", "run", "-d", "--name", target, image)
-			if err == nil {
-				out = fmt.Sprintf("✅ *%s* recreado con nueva imagen", target)
-			}
-		} else {
+		if image == "" {
 			out = "❌ No se pudo obtener la imagen del contenedor"
+			break
+		}
+		_, err = runCmd("docker", "pull", image)
+		if err != nil {
+			out = "❌ Error al hacer pull: " + err.Error()
+			break
+		}
+		_, err = runCmd("docker", "restart", target)
+		if err == nil {
+			out = fmt.Sprintf("✅ *%s* actualizado y reiniciado con la nueva imagen `%s`", target, image)
 		}
 	case "inspect_net":
 		out, err = runCmd("docker", "network", "inspect", target)
