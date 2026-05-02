@@ -555,6 +555,17 @@ func handleGrid(chatID int64, title, action string) {
 }
 
 func handleCallback(query *tgbotapi.CallbackQuery) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic in handleCallback: %v", r)
+		}
+	}()
+
+	if query.Message == nil {
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
+
 	chatID := query.Message.Chat.ID
 	
 	// Handle close button
