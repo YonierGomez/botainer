@@ -22,7 +22,7 @@ var (
 	createData = make(map[int64]map[string]string) // userID -> container creation data
 	containerIcons = map[string]string{
 		"postgres": "🐘", "mysql": "🐬", "mariadb": "🐬", "mongo": "🍃",
-		"redis": "🔴", "nginx": "🟢", "apache": "🪶", "node": "🟢",
+		"redis": "⚡", "nginx": "🌐", "apache": "🪶", "node": "💚",
 		"python": "🐍", "php": "🐘", "java": "☕", "golang": "🐹",
 		"nextcloud": "☁️", "radarr": "🎬", "sonarr": "📺", "plex": "🎬",
 		"jellyfin": "🎞️", "emby": "📺", "heimdall": "🏠", "homarr": "🏠",
