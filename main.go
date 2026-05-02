@@ -21,6 +21,7 @@ var (
 	userState = make(map[int64]string) // userID -> current state (waiting_search, waiting_addfav, etc)
 	createData = make(map[int64]map[string]string) // userID -> container creation data
 	containerIcons = map[string]string{
+		"botainer": "👑",
 		"postgres": "🐘", "mysql": "🐬", "mariadb": "🐬", "mongo": "🍃",
 		"redis": "⚡", "nginx": "🌐", "apache": "🪶", "node": "💚",
 		"python": "🐍", "php": "🐘", "java": "☕", "golang": "🐹",
