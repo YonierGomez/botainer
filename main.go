@@ -1598,6 +1598,12 @@ func main() {
 		log.Printf("Allowed users: %v", allowedUsers)
 	}
 
+	// Load notify chat ID from env (so notifications work without waiting for a message)
+	if chatIDStr := os.Getenv("NOTIFY_CHAT_ID"); chatIDStr != "" {
+		fmt.Sscanf(strings.TrimSpace(chatIDStr), "%d", &notifyChatID)
+		log.Printf("Notify chat ID loaded from env: %d", notifyChatID)
+	}
+
 	// Set bot commands automatically
 	commands := []tgbotapi.BotCommand{
 		// Estado
