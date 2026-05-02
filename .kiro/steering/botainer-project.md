@@ -94,6 +94,24 @@ The workflow triggers on:
 
 ---
 
+## Deployment
+
+The bot runs as the `botainer` service inside `/home/ubuntu/chips_all/compose.yaml`, not from its own compose file. After merging any code change to `main`, always rebuild and restart it:
+
+```bash
+docker compose -f /home/ubuntu/chips_all/compose.yaml up -d --build botainer
+```
+
+Verify it started correctly:
+
+```bash
+docker logs --tail 5 botainer
+```
+
+Expected output: `Bot iniciado: @botainerbot`
+
+---
+
 ## Coding Conventions
 
 - All code is in `main.go` (single-file architecture)
