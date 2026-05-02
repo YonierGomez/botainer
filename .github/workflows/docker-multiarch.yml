@@ -3,71 +3,106 @@ name: Docker Multi-Arch CI
 on:
   schedule:
     - cron: '0 8 * * 1'  # Every Monday 08:00 UTC
+  push:
+    branches: [main]
+    paths:
+      - 'main.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
   workflow_dispatch:
     inputs:
       force_build:
-        description: 'Force build even if Alpine version unchanged'
+        description: 'Force build even if no changes detected'
         required: false
         type: choice
         default: 'false'
-        options:
-          - 'true'
-          - 'false'
-      skip_release:
-        description: 'Build and push Docker image but skip GitHub Release creation'
-        required: false
-        type: choice
-        default: 'false'
-        options:
-          - 'true'
-          - 'false'
+        options: ['true', 'false']
 
 permissions:
   contents: write
 
 jobs:
-  # ── Phase 1: detect whether a new Alpine version is available ─────────────────
+  # ── Phase 1: detect whether anything changed ──────────────────────────────────
   check-version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.alpine_version.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
       should_build: ${{ steps.compare.outputs.should_build }}
+      changelog: ${{ steps.compare.outputs.changelog }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Get latest Alpine version
-        id: alpine_version
+        id: alpine
         run: |
-          ALPINE_VERSION=$(docker run --rm alpine:latest cat /etc/alpine-release)
-          echo "version=$ALPINE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Alpine version: $ALPINE_VERSION"
+          echo "version=$(docker run --rm alpine:latest cat /etc/alpine-release)" >> "$GITHUB_OUTPUT"
+
+      - name: Get latest Go version
+        id: golang
+        run: |
+          echo "version=$(docker run --rm golang:alpine go version | grep -oP 'go\K[0-9.]+')" >> "$GITHUB_OUTPUT"
+
+      - name: Get telegram-bot-api version from go.mod
+        id: tgapi
+        run: |
+          echo "version=$(grep 'telegram-bot-api' go.mod | grep -oP 'v[0-9.]+')" >> "$GITHUB_OUTPUT"
 
       - name: Get latest GitHub release tag
-        id: get_release
+        id: latest_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST=$(gh release list \
-            --repo ${{ github.repository }} \
-            --limit 1 \
-            --json tagName \
-            --jq '.[0].tagName // ""')
-          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          echo "Latest release: $LATEST"
+          TAG=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName --jq '.[0].tagName // ""')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Decide whether to build
+      - name: Build version string and decide whether to build
         id: compare
         run: |
-          CURRENT="v${{ steps.alpine_version.outputs.version }}"
-          LATEST="${{ steps.get_release.outputs.latest }}"
+          ALPINE="${{ steps.alpine.outputs.version }}"
+          GO="${{ steps.golang.outputs.version }}"
+          TGAPI="${{ steps.tgapi.outputs.version }}"
           FORCE="${{ github.event.inputs.force_build }}"
-          if [[ "$CURRENT" != "$LATEST" || "$FORCE" == "true" ]]; then
-            echo "should_build=true"  >> "$GITHUB_OUTPUT"
-            echo "Build needed: current=$CURRENT, latest=$LATEST, force=$FORCE"
+          TRIGGER="${{ github.event_name }}"
+
+          # Version format: alpine-go-tgapi  e.g. 3.21.3-1.24.2-v5.5.1
+          VERSION="${ALPINE}-go${GO}-tgapi${TGAPI}"
+          LATEST="${{ steps.latest_release.outputs.tag }}"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          CHANGELOG=""
+          if [[ "$TRIGGER" == "push" ]]; then
+            CHANGELOG="🔧 Cambios en el código fuente"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          elif [[ "v${VERSION}" != "$LATEST" || "$FORCE" == "true" ]]; then
+            # Detect what changed
+            if [[ "$LATEST" != *"${ALPINE}"* ]]; then
+              CHANGELOG="🏔️ Alpine Linux actualizado a ${ALPINE}"
+            fi
+            if [[ "$LATEST" != *"go${GO}"* ]]; then
+              CHANGELOG="${CHANGELOG}\n🐹 Go actualizado a ${GO}"
+            fi
+            if [[ "$LATEST" != *"tgapi${TGAPI}"* ]]; then
+              CHANGELOG="${CHANGELOG}\n📡 telegram-bot-api actualizado a ${TGAPI}"
+            fi
+            [[ -z "$CHANGELOG" ]] && CHANGELOG="🔄 Build forzado"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "No new version — skipping build."
           fi
 
-  # ── Phase 2: build per-arch on native runners (no QEMU) ──────────────────────
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          echo -e "$CHANGELOG" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "Version: $VERSION | Latest: $LATEST | Build: $(cat $GITHUB_OUTPUT | grep should_build | tail -1)"
+
+      - name: Set final version output
+        id: version
+        run: echo "version=${{ steps.compare.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+  # ── Phase 2: build per-arch on native runners ─────────────────────────────────
   build:
     needs: check-version
     if: needs.check-version.outputs.should_build == 'true'
@@ -89,7 +124,6 @@ jobs:
       - name: Docker Login
         uses: docker/login-action@v3
         with:
-          registry: docker.io
           username: ${{ secrets.USER_HUB }}
           password: ${{ secrets.PASS_HUB }}
 
@@ -98,7 +132,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
           outputs: type=image,name=yoniergomez/botainer,push-by-digest=true,name-canonical=true,push=true
@@ -106,10 +139,11 @@ jobs:
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
 
-      - name: Upload digest artifact
+      - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
           name: digest-${{ matrix.runner }}
@@ -117,10 +151,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # ── Phase 3: merge digests into multi-arch manifest ──────────────────────────
+  # ── Phase 3: merge into multi-arch manifest ───────────────────────────────────
   build-and-push:
     needs: [check-version, build]
-    if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download digests
@@ -136,7 +169,6 @@ jobs:
       - name: Docker Login
         uses: docker/login-action@v3
         with:
-          registry: docker.io
           username: ${{ secrets.USER_HUB }}
           password: ${{ secrets.PASS_HUB }}
 
@@ -148,71 +180,45 @@ jobs:
             -t yoniergomez/botainer:${VERSION} \
             $(printf 'yoniergomez/botainer@sha256:%s ' $(ls /tmp/digests))
 
-  # ── Phase 4: GitHub Release with changelog ────────────────────────────────────
+  # ── Phase 4: GitHub Release ───────────────────────────────────────────────────
   release:
     needs: [check-version, build-and-push]
-    if: needs.check-version.outputs.should_build == 'true' && github.event.inputs.skip_release != 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Check if release already exists
-        id: check_release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          EXISTS=$(gh release view "v${{ needs.check-version.outputs.version }}" \
-            --repo ${{ github.repository }} 2>/dev/null && echo "true" || echo "false")
-          echo "exists=$EXISTS" >> "$GITHUB_OUTPUT"
-
-      - name: Get Alpine release notes
-        id: changelog
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          URL="https://alpinelinux.org/posts/Alpine-${VERSION}-released.html"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          NOTES=$(curl -sf "$URL" 2>/dev/null | \
-            sed -n '/<article/,/<\/article>/p' | \
-            sed 's/<[^>]*>//g' | \
-            sed '/^$/d' | \
-            head -30 || echo "See https://alpinelinux.org/releases/")
-          echo "$NOTES" > /tmp/alpine_changelog.txt
-
       - name: Create GitHub Release
-        if: steps.check_release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v${{ needs.check-version.outputs.version }}"
           VERSION="${{ needs.check-version.outputs.version }}"
-          CHANGELOG=$(cat /tmp/alpine_changelog.txt)
-          NOTES_URL="${{ steps.changelog.outputs.url }}"
+          TAG="v${VERSION}"
+          CHANGELOG="${{ needs.check-version.outputs.changelog }}"
+
+          # Skip if release already exists
+          gh release view "$TAG" --repo ${{ github.repository }} 2>/dev/null && exit 0
 
           cat > /tmp/release-notes.md << NOTES
-          ## Botainer on Alpine Linux ${VERSION}
+          ## Botainer \`${VERSION}\`
 
-          ### Docker Images
+          ### Qué cambió
+          ${CHANGELOG}
+
+          ### Imágenes Docker
           \`\`\`bash
           docker pull yoniergomez/botainer:latest
           docker pull yoniergomez/botainer:${VERSION}
           \`\`\`
 
-          ### Supported Architectures
-          | Architecture | Tag |
+          ### Arquitecturas
+          | Arquitectura | Tag |
           |---|---|
           | linux/amd64 | \`latest\`, \`${VERSION}\` |
           | linux/arm64 | \`latest\`, \`${VERSION}\` |
 
-          ### Alpine Changelog
-          \`\`\`
-          ${CHANGELOG}
-          \`\`\`
-
-          > [Release notes completas](${NOTES_URL})
-
-          ### Quick Start
+          ### Inicio rápido
           \`\`\`bash
-          docker run -d --name botainer \
-            -e TELEGRAM_BOT_TOKEN="your_token" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
+          docker run -d --name botainer \\
+            -e TELEGRAM_BOT_TOKEN="tu_token" \\
+            -v /var/run/docker.sock:/var/run/docker.sock \\
             yoniergomez/botainer
           \`\`\`
           NOTES
