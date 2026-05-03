@@ -20,6 +20,7 @@ var (
 	commandHistory = make(map[int64][]string) // userID -> commands
 	userState = make(map[int64]string) // userID -> current state (waiting_search, waiting_addfav, etc)
 	createData = make(map[int64]map[string]string) // userID -> container creation data
+	autoUpdateContainers = make(map[string]bool) // containerName -> auto-update enabled
 	containerIcons = map[string]string{
 		"botainer": "👑",
 		"postgres": "🐘", "mysql": "🐬", "mariadb": "🐬", "mongo": "🍃",
@@ -1604,6 +1605,73 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		} else {
 			out = fmt.Sprintf("✅ *%s* recreado con la nueva imagen", target)
 		}
+	case "au_add":
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_add")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "au_remove":
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_rem")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "au_toggle_add":
+		autoUpdateContainers[target] = !autoUpdateContainers[target]
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_add")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "au_toggle_rem":
+		// In remove mode, toggling marks for removal (we flip the value)
+		autoUpdateContainers[target] = !autoUpdateContainers[target]
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_rem")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "au_all_add":
+		psOut, _ := runCmd("docker", "ps", "-a", "--format", "{{.Names}}")
+		for _, n := range strings.Split(strings.TrimSpace(psOut), "\n") {
+			if n != "" {
+				autoUpdateContainers[n] = true
+			}
+		}
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_add")
+		bot.Request(tgbotapi.NewCallback(query.ID, "✅ Todos seleccionados"))
+		return
+	case "au_none_add":
+		psOut, _ := runCmd("docker", "ps", "-a", "--format", "{{.Names}}")
+		for _, n := range strings.Split(strings.TrimSpace(psOut), "\n") {
+			if n != "" {
+				autoUpdateContainers[n] = false
+			}
+		}
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_add")
+		bot.Request(tgbotapi.NewCallback(query.ID, "⬜ Todos deseleccionados"))
+		return
+	case "au_all_rem":
+		for k := range autoUpdateContainers {
+			autoUpdateContainers[k] = false
+		}
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_rem")
+		bot.Request(tgbotapi.NewCallback(query.ID, "🗑️ Todos removidos"))
+		return
+	case "au_save":
+		enabled := []string{}
+		for name, on := range autoUpdateContainers {
+			if on {
+				enabled = append(enabled, name)
+			}
+		}
+		var saveText string
+		if len(enabled) == 0 {
+			saveText = "🔁 *Auto-Update*\n\nSin contenedores configurados."
+		} else {
+			saveText = "🔁 *Auto-Update guardado*\n\n✅ Activos: `" + strings.Join(enabled, "`, `") + "`"
+		}
+		edit := tgbotapi.NewEditMessageText(chatID, query.Message.MessageID, saveText)
+		edit.ParseMode = "Markdown"
+		edit.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close")),
+		}}
+		bot.Send(edit)
+		bot.Request(tgbotapi.NewCallback(query.ID, "💾 Guardado"))
+		return
 	case "inspect_net":
 		out, err = runCmd("docker", "network", "inspect", target)
 		if err == nil {
@@ -2010,6 +2078,16 @@ func runImageUpdateCheck() int {
 		}
 		found++
 
+		// Short digest labels for display
+		oldVer := localDigest
+		newVer := newDigest
+		if len(oldVer) > 19 {
+			oldVer = oldVer[len(oldVer)-19:]
+		}
+		if len(newVer) > 19 {
+			newVer = newVer[len(newVer)-19:]
+		}
+
 		// Collect unique compose projects for this image
 		projectSet := make(map[string]bool)
 		for _, c := range containers {
@@ -2018,14 +2096,37 @@ func runImageUpdateCheck() int {
 			}
 		}
 
-		// Build notification
 		icon := getIcon(containers[0].name)
 		names := make([]string, 0, len(containers))
 		for _, c := range containers {
 			names = append(names, c.name)
 		}
-		msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\nImagen: `%s`\nContenedor(es): `%s`",
-			icon, image, strings.Join(names, "`, `"))
+
+		// Auto-update containers that have it enabled
+		autoUpdated := []string{}
+		autoErrors := []string{}
+		for _, c := range containers {
+			if !autoUpdateContainers[c.name] {
+				continue
+			}
+			if recErr := recreateContainer(c.name); recErr == nil {
+				autoUpdated = append(autoUpdated, c.name)
+			} else {
+				autoErrors = append(autoErrors, c.name+": "+recErr.Error())
+			}
+		}
+
+		var msgText string
+		if len(autoUpdated) > 0 {
+			msgText = fmt.Sprintf("🔁 %s *Auto-Update aplicado*\nImagen: `%s`\nContenedor(es): `%s`\n\n📦 Versión anterior: `...%s`\n✅ Versión nueva: `...%s`\n\n🚀 Actualizado: `%s`",
+				icon, image, strings.Join(names, "`, `"), oldVer, newVer, strings.Join(autoUpdated, "`, `"))
+			if len(autoErrors) > 0 {
+				msgText += "\n⚠️ Errores: " + strings.Join(autoErrors, "; ")
+			}
+		} else {
+			msgText = fmt.Sprintf("🆕 %s *Nueva versión disponible*\nImagen: `%s`\nContenedor(es): `%s`\n\n📦 Versión anterior: `...%s`\n✅ Versión nueva: `...%s`",
+				icon, image, strings.Join(names, "`, `"), oldVer, newVer)
+		}
 
 		if len(projectSet) > 0 {
 			projects := make([]string, 0, len(projectSet))
@@ -2038,9 +2139,19 @@ func runImageUpdateCheck() int {
 		m := tgbotapi.NewMessage(notifyChatID, msgText)
 		m.ParseMode = "Markdown"
 
-		// One row per container: [pull only] [recreate] [pull & recreate]
+		// Only show manual action buttons for containers NOT auto-updated
 		var rows [][]tgbotapi.InlineKeyboardButton
 		for _, c := range containers {
+			alreadyDone := false
+			for _, au := range autoUpdated {
+				if au == c.name {
+					alreadyDone = true
+					break
+				}
+			}
+			if alreadyDone {
+				continue
+			}
 			recreateLabel := "🔄 Recrear: " + c.name
 			if c.project != "" {
 				recreateLabel = "🔄 Recrear: " + c.name + " (" + c.project + ")"
@@ -2067,6 +2178,104 @@ func runImageUpdateCheckWithFeedback(chatID int64) {
 	if found == 0 {
 		sendMessageWithClose(chatID, "✅ Todas las imágenes están actualizadas")
 	}
+}
+
+func handleAutoUpdate(chatID int64) {
+	enabled := []string{}
+	for name := range autoUpdateContainers {
+		if autoUpdateContainers[name] {
+			enabled = append(enabled, name)
+		}
+	}
+
+	text := "🔁 *Auto-Update de contenedores*\n\nActualización automática: cuando se detecte una nueva versión, el contenedor se actualizará y recibirás una notificación con la versión anterior y la nueva.\n\n"
+	if len(enabled) == 0 {
+		text += "📋 Sin contenedores configurados"
+	} else {
+		text += "✅ Activos: `" + strings.Join(enabled, "`, `") + "`"
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar contenedores", "au_add:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➖ Remover contenedores", "au_remove:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+// buildAutoUpdateSelector builds a container selection keyboard for add/remove flows.
+// mode: "au_toggle_add" or "au_toggle_rem"
+func buildAutoUpdateSelector(chatID int64, messageID int, mode string) {
+	out, _ := runCmd("docker", "ps", "-a", "--format", "{{.Names}}")
+	names := []string{}
+	for _, n := range strings.Split(strings.TrimSpace(out), "\n") {
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+
+	// selected = containers already toggled in this session (stored in userState as JSON-ish)
+	// We use a simple approach: show current autoUpdateContainers state as checkboxes
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for i := 0; i < len(names); i += 2 {
+		row := []tgbotapi.InlineKeyboardButton{}
+		for j := i; j < i+2 && j < len(names); j++ {
+			name := names[j]
+			var label string
+			if mode == "au_toggle_add" {
+				if autoUpdateContainers[name] {
+					label = "✅ " + name
+				} else {
+					label = "⬜ " + name
+				}
+			} else {
+				if autoUpdateContainers[name] {
+					label = "🗑️ " + name
+				} else {
+					label = "— " + name
+				}
+			}
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData(label, mode+":"+name))
+		}
+		rows = append(rows, row)
+	}
+
+	// All / None buttons
+	if mode == "au_toggle_add" {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Todos", "au_all_add:_"),
+			tgbotapi.NewInlineKeyboardButtonData("⬜ Ninguno", "au_none_add:_"),
+		))
+	} else {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Remover todos", "au_all_rem:_"),
+		))
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("💾 Guardar", "au_save:"+mode),
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+
+	text := "🔁 *Auto-Update — Selecciona contenedores*\n"
+	if mode == "au_toggle_add" {
+		text += "Toca para activar/desactivar auto-update:"
+	} else {
+		text += "Toca para marcar los que deseas remover:"
+	}
+
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	edit.ParseMode = "Markdown"
+	edit.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
+	bot.Send(edit)
 }
 
 func main() {
@@ -2130,6 +2339,7 @@ func main() {
 		// Actualizaciones
 		{Command: "checkupdates", Description: "🐳 Buscar actualizaciones de imágenes"},
 		{Command: "updateall", Description: "🐳 Actualizar todas las imágenes"},
+		{Command: "autoupdate", Description: "🔁 Gestionar auto-update de contenedores"},
 		// Utilidades
 		{Command: "search", Description: "🐳 Buscar contenedores/imágenes/volúmenes"},
 		{Command: "env", Description: "🐳 Ver variables de entorno de un contenedor"},
@@ -2358,6 +2568,8 @@ func main() {
 					sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
 					runImageUpdateCheckWithFeedback(chatID)
 				}()
+			case "autoupdate":
+				go handleAutoUpdate(chatID)
 			case "port":
 				go handleGrid(chatID, "🔌 *Ver puertos*\nSelecciona un contenedor:", "ports", false)
 			case "top":
