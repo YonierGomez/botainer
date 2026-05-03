@@ -912,11 +912,19 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("📋 ps aux", "exec_cmd:"+target+":ps aux"),
-				tgbotapi.NewInlineKeyboardButtonData("📁 ls -la", "exec_cmd:"+target+":ls -la"),
+				tgbotapi.NewInlineKeyboardButtonData("📁 ls -la /", "exec_cmd:"+target+":ls -la /"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🌐 netstat", "exec_cmd:"+target+":netstat -tulpn"),
 				tgbotapi.NewInlineKeyboardButtonData("💾 df -h", "exec_cmd:"+target+":df -h"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🧠 free -m", "exec_cmd:"+target+":free -m"),
+				tgbotapi.NewInlineKeyboardButtonData("🔧 env", "exec_cmd:"+target+":env"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🐧 OS", "exec_cmd:"+target+":cat /etc/os-release"),
+				tgbotapi.NewInlineKeyboardButtonData("⏱️ uptime", "exec_cmd:"+target+":uptime"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("⌨️ Comando manual", "exec_manual:"+target),
