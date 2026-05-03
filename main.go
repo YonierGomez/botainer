@@ -555,8 +555,12 @@ func handleList(chatID int64) {
 	bot.Send(msg)
 }
 
-func handleGrid(chatID int64, title, action string) {
-	out, err := runCmd("docker", "ps", "--format", "{{.Names}}")
+func handleGrid(chatID int64, title, action string, allContainers bool) {
+	args := []string{"ps", "--format", "{{.Names}}|{{.Status}}"}
+	if allContainers {
+		args = append(args, "-a")
+	}
+	out, err := runCmd("docker", args...)
 	if err != nil {
 		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
 		return
@@ -564,22 +568,44 @@ func handleGrid(chatID int64, title, action string) {
 
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) == 0 || lines[0] == "" {
-		sendMessageWithClose(chatID, "No hay contenedores corriendo")
+		sendMessageWithClose(chatID, "No hay contenedores")
 		return
 	}
 
 	var keyboard [][]tgbotapi.InlineKeyboardButton
 	for i := 0; i < len(lines); i += 2 {
-		icon1 := getIcon(lines[i])
+		parts1 := strings.SplitN(lines[i], "|", 2)
+		if len(parts1) < 2 {
+			continue
+		}
+		name1, status1 := parts1[0], parts1[1]
+		dot1 := "🔴"
+		if strings.Contains(status1, "Up") {
+			dot1 = "🟢"
+		} else if strings.Contains(status1, "Paused") {
+			dot1 = "🟡"
+		}
 		row := []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(icon1+" "+lines[i], action+":"+lines[i]),
+			tgbotapi.NewInlineKeyboardButtonData(dot1+" "+getIcon(name1)+" "+name1, action+":"+name1),
 		}
 		if i+1 < len(lines) {
-			icon2 := getIcon(lines[i+1])
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData(icon2+" "+lines[i+1], action+":"+lines[i+1]))
+			parts2 := strings.SplitN(lines[i+1], "|", 2)
+			if len(parts2) >= 2 {
+				name2, status2 := parts2[0], parts2[1]
+				dot2 := "🔴"
+				if strings.Contains(status2, "Up") {
+					dot2 = "🟢"
+				} else if strings.Contains(status2, "Paused") {
+					dot2 = "🟡"
+				}
+				row = append(row, tgbotapi.NewInlineKeyboardButtonData(dot2+" "+getIcon(name2)+" "+name2, action+":"+name2))
+			}
 		}
 		keyboard = append(keyboard, row)
 	}
+	keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
 
 	msg := tgbotapi.NewMessage(chatID, title)
 	msg.ParseMode = "Markdown"
@@ -637,11 +663,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		case "prune_menu":
 			go handlePrune(chatID)
 		case "restart":
-			go handleList(chatID)
+			go handleGrid(chatID, "🔄 *Reiniciar contenedor*", "restart", false)
 		case "logs":
-			go handleList(chatID)
+			go handleGrid(chatID, "📊 *Ver logs*", "logs", false)
 		case "stop":
-			go handleList(chatID)
+			go handleGrid(chatID, "⏸️ *Detener contenedor*", "stop", false)
 		case "images":
 			go handleImages(chatID)
 		case "volumes":
@@ -2012,13 +2038,13 @@ func main() {
 			case "running":
 				go handleRunning(chatID)
 			case "restart":
-				go handleList(chatID)
+				go handleGrid(chatID, "🔄 *Reiniciar contenedor*", "restart", false)
 			case "stop":
-				go handleList(chatID)
+				go handleGrid(chatID, "⏸️ *Detener contenedor*", "stop", false)
 			case "logs":
-				go handleList(chatID)
+				go handleGrid(chatID, "📊 *Ver logs*", "logs", false)
 			case "logfile":
-				go handleList(chatID)
+				go handleGrid(chatID, "💾 *Descargar logs*", "logfile", false)
 			case "create":
 				go handleCreateMenu(chatID)
 			case "images":
@@ -2033,7 +2059,7 @@ func main() {
 				notifyChatID = chatID
 				sendMessageWithClose(chatID, "✅ Notificaciones activadas")
 			case "start_container":
-				go handleList(chatID)
+				go handleStartContainer(chatID)
 			case "inspect":
 				go handleInspectMenu(chatID)
 			case "stats":
@@ -2052,9 +2078,9 @@ func main() {
 					go handleSearch(chatID, update.Message.CommandArguments())
 				}
 			case "pause":
-				go handleList(chatID)
+				go handlePauseMenu(chatID)
 			case "unpause":
-				go handleList(chatID)
+				go handleUnpauseMenu(chatID)
 			case "favorites":
 				go handleFavorites(chatID, update.Message.From.ID)
 			case "addfav":
@@ -2353,39 +2379,7 @@ func handlePrune(chatID int64) {
 }
 
 func handleExecMenu(chatID int64) {
-	out, err := runCmd("docker", "ps", "--format", "{{.Names}}")
-	if err != nil {
-		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
-		return
-	}
-
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) == 0 || lines[0] == "" {
-		sendMessageWithClose(chatID, "No hay contenedores corriendo")
-		return
-	}
-
-	var keyboard [][]tgbotapi.InlineKeyboardButton
-	for i := 0; i < len(lines); i += 2 {
-		icon1 := getIcon(lines[i])
-		row := []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(icon1+" "+lines[i], "exec_menu:"+lines[i]),
-		}
-		if i+1 < len(lines) {
-			icon2 := getIcon(lines[i+1])
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData(icon2+" "+lines[i+1], "exec_menu:"+lines[i+1]))
-		}
-		keyboard = append(keyboard, row)
-	}
-
-	keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-	))
-
-	msg := tgbotapi.NewMessage(chatID, "⚙️ *Ejecutar comando*\nSelecciona un contenedor:")
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboard...)
-	bot.Send(msg)
+	handleGrid(chatID, "⚙️ *Ejecutar comando*\nSelecciona un contenedor:", "exec_menu", false)
 }
 
 func handleSearch(chatID int64, query string) {
@@ -2439,34 +2433,7 @@ func handleSearch(chatID int64, query string) {
 }
 
 func handlePauseMenu(chatID int64) {
-	out, _ := runCmd("docker", "ps", "--format", "{{.Names}}")
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) == 0 || lines[0] == "" {
-		sendMessageWithClose(chatID, "No hay contenedores corriendo")
-		return
-	}
-	
-	var keyboard [][]tgbotapi.InlineKeyboardButton
-	for i := 0; i < len(lines); i += 2 {
-		icon1 := getIcon(lines[i])
-		row := []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(icon1+" "+lines[i], "pause:"+lines[i]),
-		}
-		if i+1 < len(lines) {
-			icon2 := getIcon(lines[i+1])
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData(icon2+" "+lines[i+1], "pause:"+lines[i+1]))
-		}
-		keyboard = append(keyboard, row)
-	}
-	
-	keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-	))
-
-	msg := tgbotapi.NewMessage(chatID, "⏸️ *Pausar contenedor*\nSelecciona un contenedor:")
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboard...)
-	bot.Send(msg)
+	handleGrid(chatID, "⏸️ *Pausar contenedor*\nSelecciona un contenedor:", "pause", false)
 }
 
 func handleUnpauseMenu(chatID int64) {
