@@ -633,7 +633,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		case "inspect_menu":
 			go handleInspectMenu(chatID)
 		case "exec_menu":
-			go handleExecMenu(chatID)
+			go handleList(chatID)
 		case "prune_menu":
 			go handlePrune(chatID)
 		case "restart":
