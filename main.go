@@ -911,10 +911,6 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	case "exec_menu":
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🐚 /bin/sh", "exec_sh:"+target),
-				tgbotapi.NewInlineKeyboardButtonData("🐚 /bin/bash", "exec_bash:"+target),
-			),
-			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("📋 ps aux", "exec_cmd:"+target+":ps aux"),
 				tgbotapi.NewInlineKeyboardButtonData("📁 ls -la", "exec_cmd:"+target+":ls -la"),
 			),
