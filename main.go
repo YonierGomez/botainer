@@ -633,7 +633,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		case "inspect_menu":
 			go handleInspectMenu(chatID)
 		case "exec_menu":
-			go handleList(chatID)
+			go handleExecMenu(chatID)
 		case "prune_menu":
 			go handlePrune(chatID)
 		case "restart":
@@ -2039,7 +2039,7 @@ func main() {
 			case "prune":
 				go handlePrune(chatID)
 			case "exec":
-				go handleList(chatID)
+				go handleExecMenu(chatID)
 			case "search":
 				if update.Message.CommandArguments() == "" {
 					userState[userID] = "waiting_search"
