@@ -181,7 +181,7 @@ func handleNetworks(chatID int64) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "inspect_net:"+name),
-				tgbotapi.NewInlineKeyboardButtonData("🗑️ Delete", "rmnet:"+name),
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ Delete", "rmnet_confirm:"+name),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
@@ -286,7 +286,7 @@ func handleImages(chatID int64) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "inspect_img:"+id),
-				tgbotapi.NewInlineKeyboardButtonData("🗑️ Delete", "rmi:"+id),
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ Delete", "rmi_confirm:"+id),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
@@ -353,9 +353,10 @@ func handleVolumes(chatID int64) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "inspect_vol:"+volumeName),
-				tgbotapi.NewInlineKeyboardButtonData("🗑️ Delete", "rmvol:"+volumeName),
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ Delete", "rmvol_confirm:"+volumeName),
 			),
 			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("💾 Backup", "backup:"+volumeName),
 				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 			),
 		)
@@ -805,6 +806,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🔄 Pull", "compose_pull:"+target),
+				tgbotapi.NewInlineKeyboardButtonData("📄 Ver compose.yml", "compose_view:"+target),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("⬅️ Atrás", "cmd:compose"),
@@ -1241,7 +1243,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			rows = [][]tgbotapi.InlineKeyboardButton{
 				tgbotapi.NewInlineKeyboardRow(
 					tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+target),
+					tgbotapi.NewInlineKeyboardButtonData("💾 Logfile", "logfile:"+target),
+				),
+				tgbotapi.NewInlineKeyboardRow(
 					tgbotapi.NewInlineKeyboardButtonData("📈 Stats", "container_stats:"+target),
+					tgbotapi.NewInlineKeyboardButtonData("🔌 Puertos", "ports:"+target),
 				),
 				tgbotapi.NewInlineKeyboardRow(
 					tgbotapi.NewInlineKeyboardButtonData("🔄 Restart", "restart:"+target),
@@ -1254,6 +1260,13 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				tgbotapi.NewInlineKeyboardRow(
 					tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "inspect:"+target),
 					tgbotapi.NewInlineKeyboardButtonData("⏸️ Pause", "pause:"+target),
+				),
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("✏️ Rename", "rename_prompt:"+target),
+					tgbotapi.NewInlineKeyboardButtonData("📋 Copy", "copy_prompt:"+target),
+				),
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove", "remove_confirm:"+target),
 				),
 			}
 		} else if status == "paused" {
@@ -1271,7 +1284,10 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				),
 				tgbotapi.NewInlineKeyboardRow(
 					tgbotapi.NewInlineKeyboardButtonData("📊 Logs", "logs:"+target),
-					tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove", "remove:"+target),
+					tgbotapi.NewInlineKeyboardButtonData("✏️ Rename", "rename_prompt:"+target),
+				),
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("🗑️ Remove", "remove_confirm:"+target),
 				),
 			}
 		}
@@ -1302,6 +1318,170 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			),
 		)
 		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "ports":
+		portsOut, _ := runCmd("docker", "inspect", "--format", "{{range $p, $b := .NetworkSettings.Ports}}{{$p}} -> {{range $b}}{{.HostIP}}:{{.HostPort}}{{end}}\n{{end}}", target)
+		portsOut = strings.TrimSpace(portsOut)
+		if portsOut == "" {
+			portsOut = "Sin puertos expuestos"
+		}
+		sendMessageWithClose(chatID, fmt.Sprintf("🔌 *Puertos de %s*\n```\n%s\n```", target, portsOut))
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "top":
+		topOut, err := runCmd("docker", "top", target)
+		if err != nil {
+			sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+		} else {
+			if len(topOut) > 3800 {
+				topOut = topOut[:3800] + "\n...(truncado)"
+			}
+			sendMessageWithClose(chatID, fmt.Sprintf("🔝 *Procesos en %s*\n```\n%s\n```", target, topOut))
+		}
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "uptime":
+		startedOut, _ := runCmd("docker", "inspect", "--format", "{{.State.StartedAt}}", target)
+		startedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(startedOut))
+		var uptimeText string
+		if err == nil {
+			d := time.Since(startedAt)
+			days := int(d.Hours()) / 24
+			hours := int(d.Hours()) % 24
+			mins := int(d.Minutes()) % 60
+			uptimeText = fmt.Sprintf("%dd %dh %dm", days, hours, mins)
+		} else {
+			uptimeText = "N/A"
+		}
+		sendMessageWithClose(chatID, fmt.Sprintf("⏱️ *Uptime de %s*\n`%s`", target, uptimeText))
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "rename_prompt":
+		userState[query.From.ID] = "waiting_rename:" + target
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✏️ *Renombrar: %s*\nEscribe el nuevo nombre:", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close")),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "copy_prompt":
+		userState[query.From.ID] = "waiting_copy:" + target
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📋 *Copiar: %s*\nEscribe el nombre del nuevo contenedor:", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close")),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "remove_confirm":
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⚠️ *¿Eliminar %s?*\nEsta acción no se puede deshacer.", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Sí, eliminar", "remove:"+target),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+			),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "backup":
+		go func(vol string) {
+			loadingID := sendLoading(chatID, fmt.Sprintf("Creando backup del volumen *%s*...", vol))
+			filename := fmt.Sprintf("/tmp/backup_%s_%d.tar.gz", vol, time.Now().Unix())
+			_, err := runCmd("docker", "run", "--rm",
+				"-v", vol+":/data:ro",
+				"-v", "/tmp:/backup",
+				"alpine", "tar", "czf", "/backup/"+strings.TrimPrefix(filename, "/tmp/"), "-C", "/data", ".")
+			deleteMsg(chatID, loadingID)
+			if err != nil {
+				sendMessageWithClose(chatID, "❌ Error creando backup: "+err.Error())
+				return
+			}
+			doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(filename))
+			doc.Caption = fmt.Sprintf("💾 Backup del volumen *%s*", vol)
+			doc.ParseMode = "Markdown"
+			bot.Send(doc)
+			os.Remove(filename)
+		}(target)
+		bot.Request(tgbotapi.NewCallback(query.ID, "⏳ Generando backup..."))
+		return
+	case "prune_confirm":
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⚠️ *¿Ejecutar prune de %s?*\nSe eliminarán recursos no usados.", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Confirmar", "prune:"+target),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+			),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "rmvol_confirm":
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⚠️ *¿Eliminar volumen %s?*\nSe perderán todos los datos.", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Sí, eliminar", "rmvol:"+target),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+			),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "rmnet_confirm":
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⚠️ *¿Eliminar red %s?*", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Sí, eliminar", "rmnet:"+target),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+			),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "rmi_confirm":
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⚠️ *¿Eliminar imagen?*\n`%s`", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Sí, eliminar", "rmi:"+target),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+			),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "compose_view":
+		workDir := getComposeWorkDir(target)
+		if workDir == "" {
+			sendMessageWithClose(chatID, "❌ No se encontró el directorio del proyecto")
+			bot.Request(tgbotapi.NewCallback(query.ID, ""))
+			return
+		}
+		// Try common compose file names
+		var content string
+		for _, fname := range []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"} {
+			out, err := runCmd("cat", workDir+"/"+fname)
+			if err == nil {
+				content = out
+				break
+			}
+		}
+		if content == "" {
+			sendMessageWithClose(chatID, "❌ No se encontró el archivo compose en `"+workDir+"`")
+		} else {
+			if len(content) > 3800 {
+				content = content[:3800] + "\n...(truncado)"
+			}
+			sendMessageWithClose(chatID, fmt.Sprintf("📄 *compose.yml — %s*\n```yaml\n%s\n```", target, content))
+		}
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	case "inspect":
@@ -1547,8 +1727,17 @@ func monitorEvents() {
 				if exitCode != "" && exitCode != "0" {
 					exitInfo = fmt.Sprintf("\n💀 Exit code: `%s`", exitCode)
 				}
+				lastLogs, _ := runCmd("docker", "logs", "--tail", "5", name)
+				lastLogs = strings.TrimSpace(lastLogs)
+				logsSection := ""
+				if lastLogs != "" {
+					if len(lastLogs) > 500 {
+						lastLogs = lastLogs[len(lastLogs)-500:]
+					}
+					logsSection = fmt.Sprintf("\n\n📋 *Últimos logs:*\n```\n%s\n```", lastLogs)
+				}
 				n = &notification{
-					text: fmt.Sprintf("💥 *Contenedor caído*\n%s *%s*\n📦 `%s`%s\n🕐 %s", icon, name, image, exitInfo, now),
+					text: fmt.Sprintf("💥 *Contenedor caído*\n%s *%s*\n📦 `%s`%s\n🕐 %s%s", icon, name, image, exitInfo, now, logsSection),
 					buttons: [][]tgbotapi.InlineKeyboardButton{
 						tgbotapi.NewInlineKeyboardRow(
 							tgbotapi.NewInlineKeyboardButtonData("🔄 Restart", "restart:"+name),
@@ -1687,64 +1876,76 @@ func monitorResourceAlerts() {
 }
 
 func scheduledReports() {
+	weeklyCount := 0
 	for {
 		now := time.Now()
 		next := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, now.Location())
 		if now.After(next) {
 			next = next.Add(24 * time.Hour)
 		}
-		
+
 		time.Sleep(time.Until(next))
-		
+
 		if notifyChatID == 0 {
 			continue
 		}
-		
+
 		containersOut, _ := runCmd("docker", "ps", "-a", "-q")
 		runningOut, _ := runCmd("docker", "ps", "-q")
 		imagesOut, _ := runCmd("docker", "images", "-q")
-		
+
 		containerCount := len(strings.Split(strings.TrimSpace(containersOut), "\n"))
 		runningCount := len(strings.Split(strings.TrimSpace(runningOut), "\n"))
 		imageCount := len(strings.Split(strings.TrimSpace(imagesOut), "\n"))
-		
+
 		stoppedOut, _ := runCmd("docker", "ps", "-a", "--filter", "status=exited", "-q")
 		unhealthyOut, _ := runCmd("docker", "ps", "--filter", "health=unhealthy", "--format", "{{.Names}}")
-		
+
 		stoppedCount := 0
-		if stoppedOut != "" {
+		if strings.TrimSpace(stoppedOut) != "" {
 			stoppedCount = len(strings.Split(strings.TrimSpace(stoppedOut), "\n"))
 		}
-		
 		unhealthyCount := 0
-		if unhealthyOut != "" {
+		if strings.TrimSpace(unhealthyOut) != "" {
 			unhealthyCount = len(strings.Split(strings.TrimSpace(unhealthyOut), "\n"))
 		}
-		
+
 		status := "✅ Todo bien"
 		if stoppedCount > 0 || unhealthyCount > 0 {
 			status = "⚠️ Requiere atención"
 		}
-		
-		report := fmt.Sprintf(`📊 *Reporte Diario - %s*
 
-%s
+		report := fmt.Sprintf("📊 *Reporte Diario - %s*\n\n%s\n\n🐳 *Resumen:*\n  • Contenedores: %d (%d corriendo)\n  • Imágenes: %d\n  • Detenidos: %d\n  • Unhealthy: %d",
+			now.Format("02/01/2006"), status, containerCount, runningCount, imageCount, stoppedCount, unhealthyCount)
 
-🐳 *Resumen:*
-  • Contenedores: %d (%d corriendo)
-  • Imágenes: %d
-  • Detenidos: %d
-  • Unhealthy: %d`,
-			now.Format("02/01/2006"),
-			status,
-			containerCount, runningCount,
-			imageCount,
-			stoppedCount,
-			unhealthyCount)
-		
 		m := tgbotapi.NewMessage(notifyChatID, report)
 		m.ParseMode = "Markdown"
 		bot.Send(m)
+
+		// Weekly report every 7 days
+		weeklyCount++
+		if weeklyCount >= 7 {
+			weeklyCount = 0
+			dfOut, _ := runCmd("df", "-h", "/")
+			diskInfo := "N/A"
+			diskLines := strings.Split(dfOut, "\n")
+			if len(diskLines) > 1 {
+				fields := strings.Fields(diskLines[1])
+				if len(fields) >= 5 {
+					diskInfo = fmt.Sprintf("%s / %s (%s)", fields[2], fields[1], fields[4])
+				}
+			}
+			volumesOut, _ := runCmd("docker", "volume", "ls", "-q")
+			volumeCount := len(strings.Split(strings.TrimSpace(volumesOut), "\n"))
+			networksOut, _ := runCmd("docker", "network", "ls", "-q")
+			networkCount := len(strings.Split(strings.TrimSpace(networksOut), "\n"))
+
+			weekly := fmt.Sprintf("📅 *Reporte Semanal - %s*\n\n%s\n\n🐳 *Docker:*\n  • Contenedores: %d (%d corriendo)\n  • Imágenes: %d\n  • Volúmenes: %d\n  • Redes: %d\n\n🖥️ *Sistema:*\n  • Disco: %s",
+				now.Format("02/01/2006"), status, containerCount, runningCount, imageCount, volumeCount, networkCount, diskInfo)
+			wm := tgbotapi.NewMessage(notifyChatID, weekly)
+			wm.ParseMode = "Markdown"
+			bot.Send(wm)
+		}
 	}
 }
 
@@ -1932,6 +2133,12 @@ func main() {
 		// Utilidades
 		{Command: "search", Description: "Buscar contenedores/imágenes/volúmenes"},
 		{Command: "env", Description: "Ver variables de entorno de un contenedor"},
+		{Command: "port", Description: "Ver puertos expuestos de un contenedor"},
+		{Command: "top", Description: "Procesos dentro de un contenedor"},
+		{Command: "uptime", Description: "Tiempo corriendo de cada contenedor"},
+		{Command: "rename", Description: "Renombrar un contenedor"},
+		{Command: "copy", Description: "Duplicar un contenedor"},
+		{Command: "backup", Description: "Exportar volumen como tar.gz"},
 		{Command: "favorites", Description: "Ver contenedores favoritos"},
 		{Command: "addfav", Description: "Agregar contenedor a favoritos"},
 		{Command: "history", Description: "Historial de comandos"},
@@ -2018,6 +2225,43 @@ func main() {
 						}
 						sendMessageWithClose(chatID, result)
 					}(container, text)
+					continue
+				}
+
+				// Handle rename
+				if strings.HasPrefix(state, "waiting_rename:") {
+					old := strings.TrimPrefix(state, "waiting_rename:")
+					delete(userState, userID)
+					go func(oldName, newName string) {
+						_, err := runCmd("docker", "rename", oldName, newName)
+						if err != nil {
+							sendMessageWithClose(chatID, "❌ Error al renombrar: "+err.Error())
+						} else {
+							sendMessageWithClose(chatID, fmt.Sprintf("✅ *%s* renombrado a *%s*", oldName, newName))
+						}
+					}(old, text)
+					continue
+				}
+
+				// Handle copy
+				if strings.HasPrefix(state, "waiting_copy:") {
+					src := strings.TrimPrefix(state, "waiting_copy:")
+					delete(userState, userID)
+					go func(srcName, newName string) {
+						// Get image of source container
+						imgOut, err := runCmd("docker", "inspect", "--format", "{{.Config.Image}}", srcName)
+						if err != nil {
+							sendMessageWithClose(chatID, "❌ Error al inspeccionar: "+err.Error())
+							return
+						}
+						image := strings.TrimSpace(imgOut)
+						_, err = runCmd("docker", "run", "-d", "--name", newName, image)
+						if err != nil {
+							sendMessageWithClose(chatID, "❌ Error al copiar: "+err.Error())
+						} else {
+							sendMessageWithClose(chatID, fmt.Sprintf("✅ Contenedor *%s* creado como copia de *%s*\n📦 Imagen: `%s`", newName, srcName, image))
+						}
+					}(src, text)
 					continue
 				}
 
@@ -2114,6 +2358,18 @@ func main() {
 					sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
 					runImageUpdateCheckWithFeedback(chatID)
 				}()
+			case "port":
+				go handleGrid(chatID, "🔌 *Ver puertos*\nSelecciona un contenedor:", "ports", false)
+			case "top":
+				go handleGrid(chatID, "🔝 *Procesos*\nSelecciona un contenedor:", "top", false)
+			case "uptime":
+				go handleUptime(chatID)
+			case "rename":
+				go handleGrid(chatID, "✏️ *Renombrar contenedor*\nSelecciona un contenedor:", "rename_prompt", true)
+			case "copy":
+				go handleGrid(chatID, "📋 *Copiar contenedor*\nSelecciona un contenedor:", "copy_prompt", false)
+			case "backup":
+				go handleBackupMenu(chatID)
 			}
 		} else if update.CallbackQuery != nil {
 			log.Printf("Received callback: %s from %d", update.CallbackQuery.Data, update.CallbackQuery.Message.Chat.ID)
@@ -2361,15 +2617,15 @@ func handleCompose(chatID int64) {
 func handlePrune(chatID int64) {
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🖼️ Imágenes", "prune:images"),
-			tgbotapi.NewInlineKeyboardButtonData("💾 Volúmenes", "prune:volumes"),
+			tgbotapi.NewInlineKeyboardButtonData("🖼️ Imágenes", "prune_confirm:images"),
+			tgbotapi.NewInlineKeyboardButtonData("💾 Volúmenes", "prune_confirm:volumes"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🌐 Redes", "prune:networks"),
-			tgbotapi.NewInlineKeyboardButtonData("🗑️ Todo", "prune:all"),
+			tgbotapi.NewInlineKeyboardButtonData("🌐 Redes", "prune_confirm:networks"),
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Todo", "prune_confirm:all"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("⬅️ Atrás", "cmd:back_main"),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 		),
 	)
 	msg := tgbotapi.NewMessage(chatID, "🗑️ *Limpiar recursos no usados*\n⚠️ Esto eliminará recursos que no están en uso")
@@ -2882,3 +3138,54 @@ func handleDiagnose(chatID int64) {
 	}
 }
 
+
+func handleUptime(chatID int64) {
+	out, err := runCmd("docker", "ps", "--format", "{{.Names}}|{{.Status}}")
+	if err != nil {
+		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+		return
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		sendMessageWithClose(chatID, "No hay contenedores corriendo")
+		return
+	}
+	text := "⏱️ *Uptime de contenedores*\n\n"
+	for _, line := range lines {
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		name, status := parts[0], parts[1]
+		icon := getIcon(name)
+		// docker ps status already contains uptime e.g. "Up 3 days"
+		text += fmt.Sprintf("%s *%s*\n   └ `%s`\n", icon, name, status)
+	}
+	sendMessageWithClose(chatID, text)
+}
+
+func handleBackupMenu(chatID int64) {
+	out, err := runCmd("docker", "volume", "ls", "--format", "{{.Name}}")
+	if err != nil || strings.TrimSpace(out) == "" {
+		sendMessageWithClose(chatID, "No hay volúmenes disponibles")
+		return
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var keyboard [][]tgbotapi.InlineKeyboardButton
+	for i := 0; i < len(lines); i += 2 {
+		row := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("💾 "+lines[i], "backup:"+lines[i]),
+		}
+		if i+1 < len(lines) {
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData("💾 "+lines[i+1], "backup:"+lines[i+1]))
+		}
+		keyboard = append(keyboard, row)
+	}
+	keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+	msg := tgbotapi.NewMessage(chatID, "💾 *Backup de volumen*\nSelecciona el volumen a exportar:")
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboard...)
+	bot.Send(msg)
+}
