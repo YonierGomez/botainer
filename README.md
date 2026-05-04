@@ -270,6 +270,10 @@ ENABLE_AUTO_CHECK=true
 
 # Enable/disable startup notification (default: true)
 ENABLE_STARTUP_NOTIFICATION=true
+
+# Bot language (default: es)
+# Options: es (Spanish), en (English)
+LANGUAGE=es
 ```
 
 ### Persistence

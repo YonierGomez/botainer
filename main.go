@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	botVersion     = "1.0.1"                      // Docker SDK v28 update
+	botVersion     = "1.1.0"                      // Multi-language support
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -43,6 +43,8 @@ var (
 	enableAutoCheck         = true
 	enableStartupNotif      = true
 	configMutex             sync.Mutex
+	language                = "es" // Default language
+	translations            = make(map[string]string)
 	containerIcons          = map[string]string{
 		"botainer": "👑",
 		"postgres": "🐘", "mysql": "🐬", "mariadb": "🐬", "mongo": "🍃",
@@ -105,6 +107,32 @@ func saveConfig() {
 	if err := os.WriteFile(configFile, data, 0644); err != nil {
 		log.Printf("Error saving config: %v", err)
 	}
+}
+
+// Load language translations
+func loadLanguage(lang string) error {
+	data, err := os.ReadFile(fmt.Sprintf("/app/locale/%s.json", lang))
+	if err != nil {
+		return err
+	}
+	
+	return json.Unmarshal(data, &translations)
+}
+
+// Get translated text with placeholder replacement
+func getText(key string, args ...interface{}) string {
+	text, ok := translations[key]
+	if !ok {
+		return key // Return key if translation not found
+	}
+	
+	// Replace placeholders $1, $2, etc.
+	for i, arg := range args {
+		placeholder := fmt.Sprintf("$%d", i+1)
+		text = strings.ReplaceAll(text, placeholder, fmt.Sprint(arg))
+	}
+	
+	return text
 }
 
 func getIcon(name string) string {
@@ -2826,6 +2854,22 @@ func main() {
 
 	log.Printf("Bot iniciado: @%s", bot.Self.UserName)
 
+	// Load language
+	if lang := os.Getenv("LANGUAGE"); lang != "" {
+		language = strings.ToLower(lang)
+	}
+	if err := loadLanguage(language); err != nil {
+		log.Printf("⚠️  Warning: Could not load language '%s', using defaults: %v", language, err)
+		// Try loading Spanish as fallback
+		if language != "es" {
+			language = "es"
+			if err := loadLanguage(language); err != nil {
+				log.Fatal("Could not load default language (es):", err)
+			}
+		}
+	}
+	log.Printf("Language loaded: %s", language)
+
 	// Load configuration from file
 	loadConfig()
 
@@ -2866,12 +2910,12 @@ func main() {
 
 	// Send startup notification
 	if enableStartupNotif && notifyChatID != 0 {
-		startupMsg := fmt.Sprintf("🤖 *Botainer v%s*\n🟢 Activo\n\n_Bot iniciado correctamente_", botVersion)
+		startupMsg := getText("bot_started", botVersion)
 		msg := tgbotapi.NewMessage(notifyChatID, startupMsg)
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("📢 Canal de Novedades", newsChannelURL),
+				tgbotapi.NewInlineKeyboardButtonURL(getText("button_news_channel"), newsChannelURL),
 			),
 		)
 		bot.Send(msg)
@@ -2879,38 +2923,38 @@ func main() {
 
 	// Set bot commands
 	commands := []tgbotapi.BotCommand{
-		{Command: "start", Description: "🐳 Menú principal"},
-		{Command: "version", Description: "ℹ️ Versión del bot"},
-		{Command: "list", Description: "🐳 Todos los contenedores"},
-		{Command: "ps", Description: "🐳 Contenedores corriendo"},
-		{Command: "running", Description: "🐳 Contenedores con acciones"},
-		{Command: "stats", Description: "🐳 Dashboard del sistema"},
-		{Command: "create", Description: "🐳 Crear contenedor"},
-		{Command: "restart", Description: "🐳 Reiniciar contenedor"},
-		{Command: "stop", Description: "🐳 Detener contenedor"},
-		{Command: "start_container", Description: "🐳 Iniciar contenedor"},
-		{Command: "pause", Description: "🐳 Pausar contenedor"},
-		{Command: "unpause", Description: "🐳 Reanudar contenedor"},
-		{Command: "logs", Description: "🐳 Ver logs"},
-		{Command: "logfile", Description: "🐳 Descargar logs"},
-		{Command: "exec", Description: "🐳 Ejecutar comando"},
-		{Command: "diagnose", Description: "🐳 Diagnóstico"},
-		{Command: "compose", Description: "🐳 Docker Compose"},
-		{Command: "inspect", Description: "🐳 Inspeccionar"},
-		{Command: "images", Description: "🐳 Listar imágenes"},
-		{Command: "volumes", Description: "🐳 Listar volúmenes"},
-		{Command: "networks", Description: "🐳 Listar redes"},
-		{Command: "prune", Description: "🐳 Limpiar recursos"},
-		{Command: "checkupdates", Description: "🐳 Buscar actualizaciones"},
-		{Command: "updateall", Description: "🐳 Actualizar todo"},
-		{Command: "autoupdate", Description: "🔁 Auto-update"},
-		{Command: "search", Description: "🐳 Buscar"},
-		{Command: "env", Description: "🐳 Variables de entorno"},
-		{Command: "favorites", Description: "🐳 Favoritos"},
-		{Command: "addfav", Description: "🐳 Agregar favorito"},
-		{Command: "history", Description: "🐳 Historial"},
-		{Command: "uptime", Description: "🐳 Uptime"},
-		{Command: "backup", Description: "🐳 Backup volumen"},
+		{Command: "start", Description: getText("menu_start")},
+		{Command: "version", Description: getText("menu_version")},
+		{Command: "list", Description: getText("menu_list")},
+		{Command: "ps", Description: getText("menu_ps")},
+		{Command: "running", Description: getText("menu_running")},
+		{Command: "stats", Description: getText("menu_stats")},
+		{Command: "create", Description: getText("menu_create")},
+		{Command: "restart", Description: getText("menu_restart")},
+		{Command: "stop", Description: getText("menu_stop")},
+		{Command: "start_container", Description: getText("menu_start_container")},
+		{Command: "pause", Description: getText("menu_pause")},
+		{Command: "unpause", Description: getText("menu_unpause")},
+		{Command: "logs", Description: getText("menu_logs")},
+		{Command: "logfile", Description: getText("menu_logfile")},
+		{Command: "exec", Description: getText("menu_exec")},
+		{Command: "diagnose", Description: getText("menu_diagnose")},
+		{Command: "compose", Description: getText("menu_compose")},
+		{Command: "inspect", Description: getText("menu_inspect")},
+		{Command: "images", Description: getText("menu_images")},
+		{Command: "volumes", Description: getText("menu_volumes")},
+		{Command: "networks", Description: getText("menu_networks")},
+		{Command: "prune", Description: getText("menu_prune")},
+		{Command: "checkupdates", Description: getText("menu_checkupdates")},
+		{Command: "updateall", Description: getText("menu_updateall")},
+		{Command: "autoupdate", Description: getText("menu_autoupdate")},
+		{Command: "search", Description: getText("menu_search")},
+		{Command: "env", Description: getText("menu_env")},
+		{Command: "favorites", Description: getText("menu_favorites")},
+		{Command: "addfav", Description: getText("menu_addfav")},
+		{Command: "history", Description: getText("menu_history")},
+		{Command: "uptime", Description: getText("menu_uptime")},
+		{Command: "backup", Description: getText("menu_backup")},
 	}
 
 	cmdConfig := tgbotapi.NewSetMyCommands(commands...)
