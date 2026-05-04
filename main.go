@@ -1329,13 +1329,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 		// Pull images (timeout 5 minutos)
 		pullOut, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull")
+		pullWarning := ""
 		if pullErr != nil {
 			log.Printf("Compose pull error for %s: %v\nOutput: %s", target, pullErr, pullOut)
-			out = fmt.Sprintf("❌ Error al hacer pull:\n```\n%s\n```", pullOut)
-			if len(out) > 3800 {
-				out = out[:3800] + "\n...\n```"
-			}
-			break
+			// Continue with up even if pull fails (may be local images)
+			pullWarning = "⚠️ Algunos pulls fallaron (imágenes locales ignoradas)\n\n"
 		}
 
 		// Up -d (timeout 3 minutos)
@@ -1350,7 +1348,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 		log.Printf("Successfully updated compose project: %s", target)
-		out = fmt.Sprintf("✅ Proyecto *%s* actualizado correctamente", target)
+		out = fmt.Sprintf("%s✅ Proyecto *%s* actualizado correctamente", pullWarning, target)
 
 	case "container_menu":
 		inspect, _ := cli.ContainerInspect(ctx, target)
