@@ -3001,12 +3001,15 @@ func main() {
 
 	// Set bot commands
 	commands := []tgbotapi.BotCommand{
+		// Menu & Status
 		{Command: "start", Description: getText("menu_start")},
-		{Command: "version", Description: getText("menu_version")},
 		{Command: "list", Description: getText("menu_list")},
 		{Command: "ps", Description: getText("menu_ps")},
 		{Command: "running", Description: getText("menu_running")},
 		{Command: "stats", Description: getText("menu_stats")},
+		{Command: "uptime", Description: getText("menu_uptime")},
+		
+		// Container Management
 		{Command: "create", Description: getText("menu_create")},
 		{Command: "restart", Description: getText("menu_restart")},
 		{Command: "stop", Description: getText("menu_stop")},
@@ -3016,23 +3019,31 @@ func main() {
 		{Command: "logs", Description: getText("menu_logs")},
 		{Command: "logfile", Description: getText("menu_logfile")},
 		{Command: "exec", Description: getText("menu_exec")},
-		{Command: "diagnose", Description: getText("menu_diagnose")},
-		{Command: "compose", Description: getText("menu_compose")},
+		{Command: "env", Description: getText("menu_env")},
 		{Command: "inspect", Description: getText("menu_inspect")},
+		
+		// Docker Compose
+		{Command: "compose", Description: getText("menu_compose")},
+		
+		// Images & Updates
 		{Command: "images", Description: getText("menu_images")},
-		{Command: "volumes", Description: getText("menu_volumes")},
-		{Command: "networks", Description: getText("menu_networks")},
-		{Command: "prune", Description: getText("menu_prune")},
 		{Command: "checkupdates", Description: getText("menu_checkupdates")},
 		{Command: "updateall", Description: getText("menu_updateall")},
 		{Command: "autoupdate", Description: getText("menu_autoupdate")},
+		
+		// Resources
+		{Command: "volumes", Description: getText("menu_volumes")},
+		{Command: "networks", Description: getText("menu_networks")},
+		{Command: "prune", Description: getText("menu_prune")},
+		
+		// Utilities
+		{Command: "diagnose", Description: getText("menu_diagnose")},
 		{Command: "search", Description: getText("menu_search")},
-		{Command: "env", Description: getText("menu_env")},
 		{Command: "favorites", Description: getText("menu_favorites")},
 		{Command: "addfav", Description: getText("menu_addfav")},
 		{Command: "history", Description: getText("menu_history")},
-		{Command: "uptime", Description: getText("menu_uptime")},
 		{Command: "backup", Description: getText("menu_backup")},
+		{Command: "version", Description: getText("menu_version")},
 	}
 
 	cmdConfig := tgbotapi.NewSetMyCommands(commands...)
