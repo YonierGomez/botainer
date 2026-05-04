@@ -26,19 +26,24 @@ import (
 const (
 	botVersion     = "2.0.0"                      // Docker SDK Migration
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
+	configFile     = "/data/config.json"          // Persistence file
 )
 
 var (
-	bot                  *tgbotapi.BotAPI
-	cli                  *client.Client
-	notifyChatID         int64
-	allowedUsers         []int64
-	favorites            = make(map[int64][]string)
-	commandHistory       = make(map[int64][]string)
-	userState            = make(map[int64]string)
-	createData           = make(map[int64]map[string]string)
-	autoUpdateContainers = make(map[string]bool)
-	containerIcons       = map[string]string{
+	bot                     *tgbotapi.BotAPI
+	cli                     *client.Client
+	notifyChatID            int64
+	allowedUsers            []int64
+	favorites               = make(map[int64][]string)
+	commandHistory          = make(map[int64][]string)
+	userState               = make(map[int64]string)
+	createData              = make(map[int64]map[string]string)
+	autoUpdateContainers    = make(map[string]bool)
+	checkUpdatesInterval    = 6 * time.Hour
+	enableAutoCheck         = true
+	enableStartupNotif      = true
+	configMutex             sync.Mutex
+	containerIcons          = map[string]string{
 		"botainer": "👑",
 		"postgres": "🐘", "mysql": "🐬", "mariadb": "🐬", "mongo": "🍃",
 		"redis": "⚡", "nginx": "🌐", "apache": "🪶", "node": "💚",
@@ -49,6 +54,58 @@ var (
 		"portainer": "🐳", "watchtower": "🗼", "grafana": "📊", "prometheus": "📈",
 	}
 )
+
+// Config structure for persistence
+type Config struct {
+	AutoUpdateContainers map[string]bool `json:"autoUpdateContainers"`
+	LastCheck            time.Time       `json:"lastCheck"`
+}
+
+// Load configuration from file
+func loadConfig() {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return // File doesn't exist yet, use defaults
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		log.Printf("Error loading config: %v", err)
+		return
+	}
+
+	autoUpdateContainers = cfg.AutoUpdateContainers
+	if autoUpdateContainers == nil {
+		autoUpdateContainers = make(map[string]bool)
+	}
+}
+
+// Save configuration to file
+func saveConfig() {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	cfg := Config{
+		AutoUpdateContainers: autoUpdateContainers,
+		LastCheck:            time.Now(),
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling config: %v", err)
+		return
+	}
+
+	// Create directory if it doesn't exist
+	os.MkdirAll("/data", 0755)
+
+	if err := os.WriteFile(configFile, data, 0644); err != nil {
+		log.Printf("Error saving config: %v", err)
+	}
+}
 
 func getIcon(name string) string {
 	name = strings.ToLower(name)
@@ -1405,6 +1462,51 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}(target)
 		bot.Request(tgbotapi.NewCallback(query.ID, "⏳ Generando backup..."))
 		return
+
+	case "au_add":
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_add")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "au_remove":
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_rem")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "au_toggle_add", "au_toggle_rem":
+		autoUpdateContainers[target] = !autoUpdateContainers[target]
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, action)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "au_all_add":
+		containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+		for _, c := range containers {
+			name := strings.TrimPrefix(c.Names[0], "/")
+			autoUpdateContainers[name] = true
+		}
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_add")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "au_none_add":
+		autoUpdateContainers = make(map[string]bool)
+		buildAutoUpdateSelector(chatID, query.Message.MessageID, "au_toggle_add")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "au_all_rem":
+		autoUpdateContainers = make(map[string]bool)
+		saveConfig()
+		go handleAutoUpdate(chatID)
+		bot.Request(tgbotapi.NewCallback(query.ID, "✅ Configuración guardada"))
+		return
+
+	case "au_save":
+		saveConfig()
+		go handleAutoUpdate(chatID)
+		bot.Request(tgbotapi.NewCallback(query.ID, "✅ Configuración guardada"))
+		return
 	}
 
 	if err != nil {
@@ -1680,10 +1782,10 @@ func scheduledReports() {
 func checkUpdates() {
 	time.Sleep(5 * time.Minute)
 	for {
-		if notifyChatID != 0 {
+		if enableAutoCheck && notifyChatID != 0 {
 			runImageUpdateCheck()
 		}
-		time.Sleep(6 * time.Hour)
+		time.Sleep(checkUpdatesInterval)
 	}
 }
 
@@ -2724,12 +2826,25 @@ func main() {
 
 	log.Printf("Bot iniciado: @%s", bot.Self.UserName)
 
-	// Send startup notification
-	if notifyChatID != 0 {
-		startupMsg := fmt.Sprintf("🤖 *Botainer*\n🟢 Activo\n⚙️ v%s\n\n_Bot iniciado correctamente_", botVersion)
-		msg := tgbotapi.NewMessage(notifyChatID, startupMsg)
-		msg.ParseMode = "Markdown"
-		bot.Send(msg)
+	// Load configuration from file
+	loadConfig()
+
+	// Load configuration from environment variables
+	if intervalStr := os.Getenv("CHECK_UPDATES_INTERVAL"); intervalStr != "" {
+		var hours int
+		if _, err := fmt.Sscanf(intervalStr, "%d", &hours); err == nil && hours > 0 {
+			checkUpdatesInterval = time.Duration(hours) * time.Hour
+			log.Printf("Check updates interval: %d hours", hours)
+		}
+	}
+
+	if autoCheckStr := os.Getenv("ENABLE_AUTO_CHECK"); autoCheckStr != "" {
+		enableAutoCheck = autoCheckStr == "true"
+		log.Printf("Auto-check enabled: %v", enableAutoCheck)
+	}
+
+	if startupNotifStr := os.Getenv("ENABLE_STARTUP_NOTIFICATION"); startupNotifStr != "" {
+		enableStartupNotif = startupNotifStr == "true"
 	}
 
 	// Load allowed users
@@ -2747,6 +2862,14 @@ func main() {
 	if chatIDStr := os.Getenv("NOTIFY_CHAT_ID"); chatIDStr != "" {
 		fmt.Sscanf(strings.TrimSpace(chatIDStr), "%d", &notifyChatID)
 		log.Printf("Notify chat ID loaded: %d", notifyChatID)
+	}
+
+	// Send startup notification
+	if enableStartupNotif && notifyChatID != 0 {
+		startupMsg := fmt.Sprintf("🤖 *Botainer*\n🟢 Activo\n⚙️ v%s\n\n_Bot iniciado correctamente_", botVersion)
+		msg := tgbotapi.NewMessage(notifyChatID, startupMsg)
+		msg.ParseMode = "Markdown"
+		bot.Send(msg)
 	}
 
 	// Set bot commands

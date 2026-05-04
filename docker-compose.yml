@@ -10,8 +10,15 @@ services:
       - COMPOSE_PROJECT=${COMPOSE_PROJECT:-work_pro}
       - COMPOSE_FILE=${COMPOSE_FILE:-docker-compose.yml}
       - WORKSPACE=/workspace
+      - CHECK_UPDATES_INTERVAL=${CHECK_UPDATES_INTERVAL:-6}
+      - ENABLE_AUTO_CHECK=${ENABLE_AUTO_CHECK:-true}
+      - ENABLE_STARTUP_NOTIFICATION=${ENABLE_STARTUP_NOTIFICATION:-true}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${COMPOSE_PATH:-/home/ubuntu}:/workspace:ro
+      - botainer_data:/data
     working_dir: /workspace
     network_mode: host
+
+volumes:
+  botainer_data:

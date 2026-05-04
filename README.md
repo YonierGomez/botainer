@@ -232,7 +232,43 @@ When an update is detected, it sends a notification with buttons:
 
 ---
 
-## 7. Security
+## 7. Configuration
+
+Botainer can be configured through environment variables in `.env`:
+
+### Basic Configuration
+
+```env
+# Required
+TELEGRAM_BOT_TOKEN=your_bot_token
+
+# Optional: restrict access (comma-separated User IDs)
+ALLOWED_USERS=123456789,987654321
+
+# Optional: chat ID for notifications
+NOTIFY_CHAT_ID=123456789
+```
+
+### Advanced Configuration
+
+```env
+# Update check interval (hours, default: 6)
+CHECK_UPDATES_INTERVAL=6
+
+# Enable/disable automatic update checks (default: true)
+ENABLE_AUTO_CHECK=true
+
+# Enable/disable startup notification (default: true)
+ENABLE_STARTUP_NOTIFICATION=true
+```
+
+### Persistence
+
+Bot configuration (like auto-update settings) is automatically saved to `/data/config.json` and persists across restarts thanks to the `botainer_data` Docker volume.
+
+---
+
+## 8. Security
 
 Restrict access by adding your User ID to `.env`:
 
@@ -248,7 +284,7 @@ Additional recommendations:
 
 ---
 
-## 8. Update the bot
+## 9. Update the bot
 
 ```bash
 cd botainer
@@ -258,7 +294,7 @@ docker compose up -d --build
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 **Bot not responding**
 ```bash
