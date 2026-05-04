@@ -23,6 +23,11 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+const (
+	botVersion     = "2.0.0"                      // Docker SDK Migration
+	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
+)
+
 var (
 	bot                  *tgbotapi.BotAPI
 	cli                  *client.Client
@@ -251,7 +256,27 @@ func recreateWithNewImage(name string) error {
 	return nil
 }
 
+func checkBotVersion(chatID int64) {
+	// Check if there's a new version available on GitHub
+	// This is a simple implementation - you can enhance it to check GitHub releases API
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🤖 *Botainer v%s*\n\n📢 Mantente al día con las últimas novedades y actualizaciones:", botVersion))
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("📢 Canal de Novedades", newsChannelURL),
+			tgbotapi.NewInlineKeyboardButtonURL("⭐ GitHub", "https://github.com/YonierGomez/botainer"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	bot.Send(msg)
+}
+
 func handleStart(chatID int64) {
+	// Check bot version and show update notification if available
+	checkBotVersion(chatID)
+
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
@@ -2719,6 +2744,7 @@ func main() {
 	// Set bot commands
 	commands := []tgbotapi.BotCommand{
 		{Command: "start", Description: "🐳 Menú principal"},
+		{Command: "version", Description: "ℹ️ Versión del bot"},
 		{Command: "list", Description: "🐳 Todos los contenedores"},
 		{Command: "ps", Description: "🐳 Contenedores corriendo"},
 		{Command: "running", Description: "🐳 Contenedores con acciones"},
@@ -2814,6 +2840,8 @@ func main() {
 			switch update.Message.Command() {
 			case "start":
 				go handleStart(chatID)
+			case "version":
+				go checkBotVersion(chatID)
 			case "ps":
 				go handlePS(chatID)
 			case "running":

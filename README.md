@@ -13,6 +13,7 @@
 [![Docker Image Size](https://img.shields.io/docker/image-size/yoniergomez/botainer/latest?logo=docker&label=Image%20Size)](https://hub.docker.com/r/yoniergomez/botainer)
 [![GitHub Release](https://img.shields.io/github/v/release/YonierGomez/botainer?logo=github&label=Release)](https://github.com/YonierGomez/botainer/releases)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/YonierGomez/botainer/docker-multiarch.yml?logo=githubactions&label=CI)](https://github.com/YonierGomez/botainer/actions)
+[![Telegram Channel](https://img.shields.io/badge/Telegram-News%20Channel-26A5E4?logo=telegram)](https://t.me/botainer_news)
 
 ### Tech Stack
 
@@ -23,6 +24,8 @@
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?logo=docker&logoColor=white)
 
 Telegram bot written in Go to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, and an interactive button interface.
+
+📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
 ---
 
