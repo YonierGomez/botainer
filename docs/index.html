@@ -371,15 +371,21 @@
     </div>
     <div>
       <div class="code-block">
-        <code><span class="c-comment"># 1. Clone</span>
+        <code><span class="c-comment"># Option A: Pre-built image (Docker Hub)</span>
+<span class="c-cmd">docker pull</span> yoniergomez/botainer:latest
+
+<span class="c-comment"># Option B: Pre-built image (GitHub Container Registry)</span>
+<span class="c-cmd">docker pull</span> ghcr.io/yoniergomez/botainer:latest
+
+<span class="c-comment"># Option C: Build from source</span>
 <span class="c-cmd">git clone</span> https://github.com/YonierGomez/botainer.git
 <span class="c-cmd">cd</span> botainer
 
-<span class="c-comment"># 2. Set token</span>
+<span class="c-comment"># Set token</span>
 <span class="c-cmd">cp</span> .env.example .env
 <span class="c-comment"># Edit .env → TELEGRAM_BOT_TOKEN=your_token</span>
 
-<span class="c-comment"># 3. Start</span>
+<span class="c-comment"># Start</span>
 <span class="c-cmd">docker compose up</span> -d --build
 <span class="c-cmd">docker logs</span> -f botainer
 <span class="c-comment"># → Bot started: @your_bot</span></code>
