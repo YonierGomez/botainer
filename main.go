@@ -1714,11 +1714,22 @@ func monitorResourceAlerts() {
 
 		candidates := make(map[string]bool)
 		for name, vals := range first {
-			var cpu, mem float64
+			var cpu float64
 			fmt.Sscanf(strings.TrimSuffix(vals.CPU, "%"), "%f", &cpu)
-			fmt.Sscanf(strings.Split(vals.Mem, "/")[0], "%fMiB", &mem)
 
-			if cpu > 90 || mem > 90 {
+			// Parse RAM: "234MiB / 15957MiB" -> calculate percentage
+			var memUsed, memTotal float64
+			memParts := strings.Split(vals.Mem, "/")
+			if len(memParts) == 2 {
+				fmt.Sscanf(strings.TrimSpace(memParts[0]), "%fMiB", &memUsed)
+				fmt.Sscanf(strings.TrimSpace(memParts[1]), "%fMiB", &memTotal)
+			}
+			memPercent := 0.0
+			if memTotal > 0 {
+				memPercent = (memUsed / memTotal) * 100
+			}
+
+			if cpu > 90 || memPercent > 90 {
 				candidates[name] = true
 			}
 		}
