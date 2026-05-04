@@ -535,7 +535,7 @@ func handleUpdateAll(chatID int64) {
 
 		var buttons []tgbotapi.InlineKeyboardButton
 		if project != "" {
-			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+project, "compose_pullup:"+project))
+			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+u.name, "compose_pullup_service:"+project+":"+u.name))
 		} else {
 			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData("🔄 Recrear", "update_recreate:"+u.name))
 		}
@@ -1361,6 +1361,63 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 		log.Printf("Successfully updated compose project: %s", target)
 		out = fmt.Sprintf("✅ Proyecto *%s* actualizado correctamente", target)
+
+	case "compose_pullup_service":
+		// Format: project:service
+		parts := strings.SplitN(target, ":", 2)
+		if len(parts) != 2 {
+			out = "❌ Formato inválido"
+			break
+		}
+		project, service := parts[0], parts[1]
+
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Actualizando *%s*...", service))
+
+		workDir := getComposeWorkDir(project)
+		if workDir == "" {
+			out = "❌ No se encontró el directorio del proyecto"
+			break
+		}
+
+		composeFile := findComposeFile(workDir)
+		if composeFile == "" {
+			out = fmt.Sprintf("❌ No se encontró archivo compose en: `%s`", workDir)
+			break
+		}
+
+		log.Printf("Updating service %s in project %s with file: %s", service, project, composeFile)
+
+		// Pull only the specific service (timeout 5 minutos)
+		pullOut, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", service)
+		if pullErr != nil {
+			log.Printf("Compose pull error for %s: %v\nOutput: %s", service, pullErr, pullOut)
+			
+			isLocalImageError := strings.Contains(pullOut, "pull access denied") || 
+				strings.Contains(pullOut, "repository does not exist")
+			
+			if !isLocalImageError {
+				out = fmt.Sprintf("❌ Error al hacer pull:\n```\n%s\n```", pullOut)
+				if len(out) > 3800 {
+					out = out[:3800] + "\n...\n```"
+				}
+				break
+			}
+			log.Printf("Local image detected for %s, continuing with up", service)
+		}
+
+		// Up -d only the specific service (timeout 3 minutos)
+		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", service)
+		if upErr != nil {
+			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
+			out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
+			if len(out) > 3800 {
+				out = out[:3800] + "\n...\n```"
+			}
+			break
+		}
+
+		log.Printf("Successfully updated service: %s", service)
+		out = fmt.Sprintf("✅ Contenedor *%s* actualizado correctamente", service)
 
 	case "container_menu":
 		inspect, _ := cli.ContainerInspect(ctx, target)
