@@ -28,25 +28,29 @@ Este documento explica cómo configurar las notificaciones automáticas al canal
 
 ## 🔑 Paso 2: Obtener el Chat ID del canal
 
-Ejecuta este comando en tu servidor:
+**Para canales públicos (recomendado):**
 
-```bash
-# Envía un mensaje de prueba al canal desde el bot
-docker exec -it botainer sh -c 'echo "Test" | nc -l -p 8080'
+Si tu canal es público (como `@botainer_news`), simplemente usa el username:
+
+```
+TELEGRAM_CHANNEL_ID=@botainer_news
 ```
 
-**O usa este método más simple:**
+✅ **Este es el método más simple y no requiere agregar el bot como administrador.**
 
-1. Reenvía cualquier mensaje del canal a: `@userinfobot`
-2. El bot te responderá con el Chat ID del canal
-3. El formato será: `-100XXXXXXXXXX` (número negativo)
+---
 
-**O usa la API de Telegram:**
+**Para canales privados (alternativo):**
 
+Si tu canal es privado, necesitas el Chat ID numérico:
+
+1. Agrega el bot como administrador del canal
+2. Publica un mensaje en el canal
+3. Ejecuta:
 ```bash
-# Reemplaza YOUR_BOT_TOKEN con el token real
 curl -s "https://api.telegram.org/botYOUR_BOT_TOKEN/getUpdates" | grep -o '"chat":{"id":-[0-9]*' | head -1
 ```
+4. El formato será: `-100XXXXXXXXXX` (número negativo)
 
 ---
 
@@ -60,8 +64,9 @@ curl -s "https://api.telegram.org/botYOUR_BOT_TOKEN/getUpdates" | grep -o '"chat
 - **Ejemplo:** `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
 
 ### `TELEGRAM_CHANNEL_ID`
-- **Valor:** El Chat ID del canal (número negativo)
-- **Ejemplo:** `-1001234567890`
+- **Valor:** El username del canal (con @)
+- **Ejemplo:** `@botainer_news`
+- **Nota:** Para canales públicos, usa el username. Para privados, usa el Chat ID numérico negativo.
 
 ---
 
