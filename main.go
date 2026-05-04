@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	botVersion     = "1.0.0"                      // First stable release
+	botVersion     = "1.0.1"                      // Docker SDK v28 update
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )

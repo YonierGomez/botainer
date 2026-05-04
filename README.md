@@ -81,10 +81,16 @@ ALLOWED_USERS=123456789,987654321
 
 ## 3. Run with Docker
 
-### Option A — Pre-built image from Docker Hub (recommended)
+### Option A — Pre-built image (recommended)
 
+**Docker Hub:**
 ```bash
 docker pull yoniergomez/botainer:latest
+```
+
+**GitHub Container Registry:**
+```bash
+docker pull ghcr.io/yoniergomez/botainer:latest
 ```
 
 Edit `docker-compose.yml` to use the image instead of building:
@@ -92,7 +98,7 @@ Edit `docker-compose.yml` to use the image instead of building:
 ```yaml
 services:
   botainer:
-    image: yoniergomez/botainer:latest
+    image: yoniergomez/botainer:latest  # or ghcr.io/yoniergomez/botainer:latest
     container_name: botainer
     restart: unless-stopped
     volumes:
