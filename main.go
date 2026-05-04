@@ -2724,6 +2724,14 @@ func main() {
 
 	log.Printf("Bot iniciado: @%s", bot.Self.UserName)
 
+	// Send startup notification
+	if notifyChatID != 0 {
+		startupMsg := fmt.Sprintf("🤖 *Botainer*\n🟢 Activo\n⚙️ v%s\n\n_Bot iniciado correctamente_", botVersion)
+		msg := tgbotapi.NewMessage(notifyChatID, startupMsg)
+		msg.ParseMode = "Markdown"
+		bot.Send(msg)
+	}
+
 	// Load allowed users
 	if usersStr := os.Getenv("ALLOWED_USERS"); usersStr != "" {
 		for _, idStr := range strings.Split(usersStr, ",") {
