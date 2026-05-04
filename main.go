@@ -220,7 +220,7 @@ func getStats() map[string]struct{ CPU, Mem string } {
 		}
 		defer statsResp.Body.Close()
 
-		var v types.StatsJSON
+		var v container.StatsResponse
 		if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
 			continue
 		}
@@ -644,7 +644,7 @@ func handlePS(chatID int64) {
 			cpu, mem := "N/A", "N/A"
 			statsResp, err := cli.ContainerStats(ctx, c.ID, false)
 			if err == nil {
-				var v types.StatsJSON
+				var v container.StatsResponse
 				if json.NewDecoder(statsResp.Body).Decode(&v) == nil {
 					cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
 					systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
