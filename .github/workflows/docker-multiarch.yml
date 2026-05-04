@@ -294,7 +294,7 @@ jobs:
           MESSAGE="🚀 *Nueva versión de Botainer disponible*%0A%0A"
           MESSAGE="${MESSAGE}📦 *Versión:* \`${VERSION}\`%0A%0A"
           MESSAGE="${MESSAGE}✨ *Novedades:*%0A${CHANGELOG_FORMATTED}%0A%0A"
-          MESSAGE="${MESSAGE}🐳 *Actualizar:*%0A\`docker pull yoniergomez/botainer:latest\`%0A\`docker compose up -d --build botainer\`%0A%0A"
+          MESSAGE="${MESSAGE}🐳 *Actualizar:*%0A\`docker pull yoniergomez/botainer:latest\`%0A\`docker pull ghcr.io/yoniergomez/botainer:latest\`%0A\`docker compose up -d --build botainer\`%0A%0A"
           MESSAGE="${MESSAGE}🔗 [Ver release completo](https://github.com/YonierGomez/botainer/releases/latest)"
           
           # Send to Telegram channel

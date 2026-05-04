@@ -83,17 +83,17 @@ ALLOWED_USERS=123456789,987654321
 
 ### Option A — Pre-built image (recommended)
 
-**Docker Hub:**
+Pull from Docker Hub:
 ```bash
 docker pull yoniergomez/botainer:latest
 ```
 
-**GitHub Container Registry:**
+Or from GitHub Container Registry:
 ```bash
 docker pull ghcr.io/yoniergomez/botainer:latest
 ```
 
-Edit `docker-compose.yml` to use the image instead of building:
+Edit `docker-compose.yml` to use the pre-built image:
 
 ```yaml
 services:
