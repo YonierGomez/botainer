@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	botVersion     = "2.0.0"                      // Docker SDK Migration
+	botVersion     = "1.0.0"                      // First stable release
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -2866,9 +2866,14 @@ func main() {
 
 	// Send startup notification
 	if enableStartupNotif && notifyChatID != 0 {
-		startupMsg := fmt.Sprintf("🤖 *Botainer*\n🟢 Activo\n⚙️ v%s\n\n_Bot iniciado correctamente_", botVersion)
+		startupMsg := fmt.Sprintf("🤖 *Botainer v%s*\n🟢 Activo\n\n_Bot iniciado correctamente_", botVersion)
 		msg := tgbotapi.NewMessage(notifyChatID, startupMsg)
 		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonURL("📢 Canal de Novedades", newsChannelURL),
+			),
+		)
 		bot.Send(msg)
 	}
 

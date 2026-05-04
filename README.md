@@ -146,6 +146,10 @@ services:
 
 The `/var/run/docker.sock` volume gives access to the host Docker daemon. The `/workspace` volume points to the directory where your Docker Compose projects live — adjust it to match your server.
 
+> **Note**
+> 
+> The `botainer_data` volume is required to persist auto-update configuration. Without it, your `/autoupdate` settings will be lost when the bot restarts.
+
 ---
 
 ## 5. Available commands

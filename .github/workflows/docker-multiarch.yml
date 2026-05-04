@@ -275,8 +275,15 @@ jobs:
           VERSION="${{ needs.check-version.outputs.version }}"
           CHANGELOG="${{ needs.check-version.outputs.changelog }}"
           
-          # Build message
-          MESSAGE="🚀 *Botainer v${VERSION}*%0A%0A${CHANGELOG}%0A%0A📦 \`docker pull yoniergomez/botainer:latest\`%0A%0A🔗 [Ver cambios](https://github.com/YonierGomez/botainer/releases/latest)"
+          # Format changelog for Telegram (replace \n with %0A)
+          CHANGELOG_FORMATTED=$(echo "$CHANGELOG" | sed 's/\\n/%0A/g' | sed 's/\n/%0A/g')
+          
+          # Build descriptive message
+          MESSAGE="🚀 *Nueva versión de Botainer disponible*%0A%0A"
+          MESSAGE="${MESSAGE}📦 *Versión:* \`${VERSION}\`%0A%0A"
+          MESSAGE="${MESSAGE}✨ *Novedades:*%0A${CHANGELOG_FORMATTED}%0A%0A"
+          MESSAGE="${MESSAGE}🐳 *Actualizar:*%0A\`docker pull yoniergomez/botainer:latest\`%0A\`docker compose up -d --build botainer\`%0A%0A"
+          MESSAGE="${MESSAGE}🔗 [Ver release completo](https://github.com/YonierGomez/botainer/releases/latest)"
           
           # Send to Telegram channel
           curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
