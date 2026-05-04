@@ -34,6 +34,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
+      - name: Get app version from code
+        id: app_version
+        run: |
+          VERSION=$(grep 'botVersion.*=' main.go | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "App version: $VERSION"
+
       - name: Get latest Alpine version
         id: alpine
         run: |
@@ -60,31 +67,36 @@ jobs:
       - name: Build version string and decide whether to build
         id: compare
         run: |
+          APP_VERSION="${{ steps.app_version.outputs.version }}"
           ALPINE="${{ steps.alpine.outputs.version }}"
           GO="${{ steps.golang.outputs.version }}"
           TGAPI="${{ steps.tgapi.outputs.version }}"
           FORCE="${{ github.event.inputs.force_build }}"
           TRIGGER="${{ github.event_name }}"
 
-          # Version format: alpine-go-tgapi  e.g. 3.21.3-go1.24.2-tgapiv5.5.1
-          VERSION="${ALPINE}-go${GO}-tgapi${TGAPI}"
+          # Use app version as main version
+          VERSION="${APP_VERSION}"
           LATEST="${{ steps.latest_release.outputs.tag }}"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           CHANGELOG=""
           if [[ "$TRIGGER" == "push" ]]; then
-            CHANGELOG="🔧 Source code changes"
+            CHANGELOG="🔧 Code changes in main.go"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           elif [[ "v${VERSION}" != "$LATEST" || "$FORCE" == "true" ]]; then
+            # Check what changed
+            if [[ "$LATEST" != "v${VERSION}" ]]; then
+              CHANGELOG="🚀 New version ${VERSION}"
+            fi
             if [[ "$LATEST" != *"${ALPINE}"* ]]; then
-              CHANGELOG="🏔️ Alpine Linux updated to ${ALPINE}"
+              CHANGELOG="${CHANGELOG}\n🏔️ Alpine Linux ${ALPINE}"
             fi
             if [[ "$LATEST" != *"go${GO}"* ]]; then
-              CHANGELOG="${CHANGELOG}\n🐹 Go updated to ${GO}"
+              CHANGELOG="${CHANGELOG}\n🐹 Go ${GO}"
             fi
             if [[ "$LATEST" != *"tgapi${TGAPI}"* ]]; then
-              CHANGELOG="${CHANGELOG}\n📡 telegram-bot-api updated to ${TGAPI}"
+              CHANGELOG="${CHANGELOG}\n📡 telegram-bot-api ${TGAPI}"
             fi
             [[ -z "$CHANGELOG" ]] && CHANGELOG="🔄 Forced build"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
