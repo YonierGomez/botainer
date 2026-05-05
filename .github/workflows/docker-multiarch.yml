@@ -294,9 +294,32 @@ jobs:
 
       - name: Send Telegram notification to channel
         if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
-          CHANGELOG="${{ needs.check-version.outputs.changelog }}"
+          TAG="v${VERSION}"
+          
+          # Try to get changelog from GitHub Release first
+          RELEASE_BODY=$(gh release view "$TAG" --repo ${{ github.repository }} --json body --jq '.body' 2>/dev/null || echo "")
+          
+          if [ -n "$RELEASE_BODY" ]; then
+            # Extract highlights from release body (first section after "Highlights")
+            CHANGELOG=$(echo "$RELEASE_BODY" | sed -n '/## 🎯 Highlights/,/^##/p' | sed '1d;$d' | head -10)
+            if [ -z "$CHANGELOG" ]; then
+              # Try alternative format
+              CHANGELOG=$(echo "$RELEASE_BODY" | sed -n '/## ✨ New Features/,/^##/p' | sed '1d;$d' | head -10)
+            fi
+            if [ -z "$CHANGELOG" ]; then
+              # Fallback: use first 10 lines after first ##
+              CHANGELOG=$(echo "$RELEASE_BODY" | sed -n '/^##/,/^##/p' | sed '1d;$d' | head -10)
+            fi
+          fi
+          
+          # Fallback to workflow changelog if release not found
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="${{ needs.check-version.outputs.changelog }}"
+          fi
           
           # Format changelog for Telegram (replace \n with %0A)
           CHANGELOG_FORMATTED=$(echo "$CHANGELOG" | sed 's/\\n/%0A/g' | sed 's/\n/%0A/g')
@@ -306,7 +329,7 @@ jobs:
           MESSAGE="${MESSAGE}📦 *Versión:* \`${VERSION}\`%0A%0A"
           MESSAGE="${MESSAGE}✨ *Novedades:*%0A${CHANGELOG_FORMATTED}%0A%0A"
           MESSAGE="${MESSAGE}🐳 *Actualizar:*%0A\`docker pull yoniergomez/botainer:latest\`%0A\`docker pull ghcr.io/yoniergomez/botainer:latest\`%0A\`docker compose up -d --build botainer\`%0A%0A"
-          MESSAGE="${MESSAGE}🔗 [Ver release completo](https://github.com/YonierGomez/botainer/releases/latest)"
+          MESSAGE="${MESSAGE}🔗 [Ver release completo](https://github.com/YonierGomez/botainer/releases/tag/${TAG})"
           
           # Send to Telegram channel
           curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
