@@ -2064,6 +2064,7 @@ func runImageUpdateCheck() int {
 						if len(parts) == 2 {
 							image, tag := parts[0], parts[1]
 							registry, repo := parseRegistryAndRepo(image)
+							log.Printf("Getting size for %s from %s/%s", newerTag, registry, repo)
 							
 							// Get token from cache or fetch
 							cacheKey := registry + ":" + repo
@@ -2073,6 +2074,7 @@ func runImageUpdateCheck() int {
 							
 							if !cached {
 								token, _ = fetchRegistryToken(registry, repo)
+								log.Printf("Fetched new token for %s", registry)
 							}
 							
 							if size, err := getImageSizeFromRegistry(registry, repo, tag, token); err == nil && size > 0 {
@@ -2082,6 +2084,9 @@ func runImageUpdateCheck() int {
 								} else {
 									sizeText = fmt.Sprintf("%.1f MB", sizeMB)
 								}
+								log.Printf("Got size for %s: %s", newerTag, sizeText)
+							} else {
+								log.Printf("Failed to get size for %s: %v", newerTag, err)
 							}
 						}
 						
