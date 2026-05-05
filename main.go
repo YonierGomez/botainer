@@ -970,34 +970,68 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	
 	if strings.HasPrefix(query.Data, "newtag_update:") {
 		parts := strings.Split(query.Data, ":")
-		if len(parts) >= 3 {
+		if len(parts) >= 4 {
 			containerName := parts[1]
-			newTag := parts[2]
+			oldTag := parts[2]
+			newTag := parts[3]
+			project := ""
+			if len(parts) >= 5 {
+				project = parts[4]
+			}
 			
 			editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🔄 Actualizando *%s* a `%s`...", containerName, newTag))
 			
-			// Get current container config
-			inspect, err := cli.ContainerInspect(ctx, containerName)
-			if err != nil {
-				out = fmt.Sprintf("❌ Error al inspeccionar contenedor: %v", err)
-			} else {
-				// Stop and remove old container
-				cli.ContainerStop(ctx, containerName, container.StopOptions{})
-				cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
-				
-				// Create new container with new image
-				config := inspect.Config
-				config.Image = newTag
-				
-				resp, err := cli.ContainerCreate(ctx, config, inspect.HostConfig, inspect.NetworkSettings.Networks, nil, containerName)
-				if err != nil {
-					out = fmt.Sprintf("❌ Error al crear contenedor: %v", err)
+			if project != "" {
+				// Compose service - edit compose file and run up
+				workDir := getComposeWorkDir(project)
+				if workDir == "" {
+					out = "❌ No se encontró el directorio del proyecto"
 				} else {
-					// Start new container
-					if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-						out = fmt.Sprintf("❌ Error al iniciar contenedor: %v", err)
+					composeFile := findComposeFile(workDir)
+					if composeFile == "" {
+						out = fmt.Sprintf("❌ No se encontró archivo compose en: `%s`", workDir)
 					} else {
-						out = fmt.Sprintf("✅ *%s* actualizado a `%s`", containerName, newTag)
+						// Use sed to replace the image tag in compose file
+						sedCmd := fmt.Sprintf("sed -i 's|image: %s|image: %s|g' %s", oldTag, newTag, composeFile)
+						sedOut, sedErr := runCmdWithTimeout(30*time.Second, "sh", "-c", sedCmd)
+						
+						if sedErr != nil {
+							out = fmt.Sprintf("❌ Error al editar compose: %v\n%s", sedErr, sedOut)
+						} else {
+							// Run docker compose up -d for the service
+							upOut, upErr := runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--remove-orphans", containerName)
+							if upErr != nil {
+								out = fmt.Sprintf("❌ Error al actualizar: %v\n%s", upErr, upOut)
+							} else {
+								out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n_Compose file modificado y servicio actualizado_", containerName, newTag)
+							}
+						}
+					}
+				}
+			} else {
+				// Standalone container - recreate with new image
+				inspect, err := cli.ContainerInspect(ctx, containerName)
+				if err != nil {
+					out = fmt.Sprintf("❌ Error al inspeccionar contenedor: %v", err)
+				} else {
+					// Stop and remove old container
+					cli.ContainerStop(ctx, containerName, container.StopOptions{})
+					cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
+					
+					// Create new container with new image
+					config := inspect.Config
+					config.Image = newTag
+					
+					resp, err := cli.ContainerCreate(ctx, config, inspect.HostConfig, inspect.NetworkSettings.Networks, nil, containerName)
+					if err != nil {
+						out = fmt.Sprintf("❌ Error al crear contenedor: %v", err)
+					} else {
+						// Start new container
+						if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+							out = fmt.Sprintf("❌ Error al iniciar contenedor: %v", err)
+						} else {
+							out = fmt.Sprintf("✅ *%s* actualizado a `%s`", containerName, newTag)
+						}
 					}
 				}
 			}
@@ -2157,18 +2191,10 @@ func runImageUpdateCheck() int {
 									// Add action buttons
 									var rows [][]tgbotapi.InlineKeyboardButton
 									
-									// Check if it's a compose service or standalone
-									if len(ctrs) > 0 && ctrs[0].project != "" {
-										// Compose service - can't auto-update (would need to edit compose file)
-										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-											tgbotapi.NewInlineKeyboardButtonData("📝 Cómo actualizar", "newtag_howto:"+ctrs[0].name+":"+imgTag+":"+newerTag),
-										))
-									} else {
-										// Standalone container - can recreate with new tag
-										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-											tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar ahora", "newtag_update:"+ctrs[0].name+":"+newerTag),
-										))
-									}
+									// Both compose and standalone can be auto-updated
+									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+										tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar ahora", "newtag_update:"+ctrs[0].name+":"+imgTag+":"+newerTag+":"+ctrs[0].project),
+									))
 									
 									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 										tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
