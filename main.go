@@ -2051,8 +2051,13 @@ func runImageUpdateCheck() int {
 		if localID == "" || newID == "" || localID == newID {
 			// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
 			if localID != "" && newID != "" && localID == newID {
+				log.Printf("Checking for newer tag: %s", imageTag)
 				newerTag, err := findNewerTag(imageTag)
+				if err != nil {
+					log.Printf("Error checking newer tag for %s: %v", imageTag, err)
+				}
 				if err == nil && newerTag != "" {
+					log.Printf("Found newer tag: %s → %s", imageTag, newerTag)
 					// Found a newer tag version
 					icon := getIcon(containers[0].name)
 					names := make([]string, 0, len(containers))
@@ -2067,6 +2072,8 @@ func runImageUpdateCheck() int {
 					m.ParseMode = "Markdown"
 					bot.Send(m)
 					found++
+				} else {
+					log.Printf("No newer tag found for %s", imageTag)
 				}
 			}
 			continue
@@ -3778,6 +3785,7 @@ func findNewerTag(imageTag string) (string, error) {
 	
 	// Get registry and repo
 	registry, repo := parseRegistryAndRepo(image)
+	log.Printf("findNewerTag: registry=%s, repo=%s", registry, repo)
 	
 	// Fetch token
 	token, err := fetchRegistryToken(registry, repo)
@@ -3785,6 +3793,7 @@ func findNewerTag(imageTag string) (string, error) {
 		log.Printf("Failed to fetch registry token for %s: %v", image, err)
 		return "", nil // Silent fail
 	}
+	log.Printf("findNewerTag: got token for %s", image)
 	
 	// List tags
 	allTags, err := listRegistryTags(registry, repo, token)
@@ -3792,6 +3801,7 @@ func findNewerTag(imageTag string) (string, error) {
 		log.Printf("Failed to list tags for %s: %v", image, err)
 		return "", nil // Silent fail
 	}
+	log.Printf("findNewerTag: found %d tags for %s", len(allTags), image)
 	
 	// Find best newer tag with same suffix
 	var best *semver.Version
