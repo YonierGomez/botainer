@@ -27,9 +27,9 @@ import (
 )
 
 const (
-	botVersion     = "1.2.2"                      // Fix callback data parsing for image tags
+	botVersion     = "1.2.3"                      // Helm chart tracking with images + persistence fixes
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
-	configFile     = "/data/config.json"          // Persistence file
+	configFile     = "/data/config.json" // Persistence file
 )
 
 var (
@@ -43,7 +43,7 @@ var (
 	createData              = make(map[int64]map[string]string)
 	autoUpdateContainers    = make(map[string]bool)
 	trackedImages           = make(map[string]string) // image:tag -> last known digest
-	trackedCharts           = make(map[string]string) // repo/chart -> last known version
+	trackedCharts           = make(map[string]ChartInfo) // repo/chart -> chart info
 	checkUpdatesInterval    = 6 * time.Hour
 	enableAutoCheck         = true
 	enableStartupNotif      = true
@@ -62,12 +62,20 @@ var (
 	}
 )
 
+// ChartInfo stores Helm chart tracking information
+type ChartInfo struct {
+	Version    string   `json:"version"`
+	AppVersion string   `json:"appVersion"`
+	Repo       string   `json:"repo"`
+	Images     []string `json:"images"`
+}
+
 // Config structure for persistence
 type Config struct {
-	AutoUpdateContainers map[string]bool   `json:"autoUpdateContainers"`
-	TrackedImages        map[string]string `json:"trackedImages"` // image:tag -> digest
-	TrackedCharts        map[string]string `json:"trackedCharts"` // repo/chart -> version
-	LastCheck            time.Time         `json:"lastCheck"`
+	AutoUpdateContainers map[string]bool      `json:"autoUpdateContainers"`
+	TrackedImages        map[string]string    `json:"trackedImages"` // image:tag -> digest
+	TrackedCharts        map[string]ChartInfo `json:"trackedCharts"` // repo/chart -> chart info
+	LastCheck            time.Time            `json:"lastCheck"`
 }
 
 // ArtifactHubPackage represents a package from Artifact Hub API
@@ -77,6 +85,9 @@ type ArtifactHubPackage struct {
 	Repository  struct {
 		Name string `json:"name"`
 	} `json:"repository"`
+	ContainersImages []struct {
+		Image string `json:"image"`
+	} `json:"containers_images"`
 }
 
 // Load configuration from file
@@ -105,7 +116,7 @@ func loadConfig() {
 	}
 	trackedCharts = cfg.TrackedCharts
 	if trackedCharts == nil {
-		trackedCharts = make(map[string]string)
+		trackedCharts = make(map[string]ChartInfo)
 	}
 }
 
@@ -2498,8 +2509,14 @@ func handleTrackChart(chatID int64) {
 	} else {
 		text += "✅ Trackeados:\n"
 		for _, chart := range tracked {
-			ver := trackedCharts[chart]
-			text += fmt.Sprintf("• `%s` → `%s`\n", chart, ver)
+			info := trackedCharts[chart]
+			text += fmt.Sprintf("• `%s`\n  Chart: `%s` | App: `%s` | Repo: `%s`\n", chart, info.Version, info.AppVersion, info.Repo)
+			if len(info.Images) > 0 {
+				text += "  🐳 Imágenes:\n"
+				for _, img := range info.Images {
+					text += fmt.Sprintf("    • `%s`\n", img)
+				}
+			}
 		}
 	}
 
@@ -2550,7 +2567,19 @@ func addTrackedChart(chatID int64, chartName string) {
 		return
 	}
 
-	trackedCharts[chartName] = pkg.Version
+	images := []string{}
+	for _, img := range pkg.ContainersImages {
+		if img.Image != "" {
+			images = append(images, img.Image)
+		}
+	}
+
+	trackedCharts[chartName] = ChartInfo{
+		Version:    pkg.Version,
+		AppVersion: pkg.AppVersion,
+		Repo:       pkg.Repository.Name,
+		Images:     images,
+	}
 	saveConfig()
 	
 	deleteMsg(chatID, loadingID)
@@ -2592,14 +2621,26 @@ func checkTrackedCharts(chatID int64) {
 	}
 
 	found := 0
-	for chartName, oldVersion := range trackedCharts {
+	for chartName, oldInfo := range trackedCharts {
 		pkg, err := fetchArtifactHubPackage(chartName)
-		if err != nil || pkg.Version == oldVersion {
+		if err != nil || pkg.Version == oldInfo.Version {
 			continue
 		}
 
 		found++
-		trackedCharts[chartName] = pkg.Version
+		images := []string{}
+		for _, img := range pkg.ContainersImages {
+			if img.Image != "" {
+				images = append(images, img.Image)
+			}
+		}
+
+		trackedCharts[chartName] = ChartInfo{
+			Version:    pkg.Version,
+			AppVersion: pkg.AppVersion,
+			Repo:       pkg.Repository.Name,
+			Images:     images,
+		}
 		saveConfig()
 
 		appVerText := ""
@@ -2608,7 +2649,7 @@ func checkTrackedCharts(chatID int64) {
 		}
 
 		msgText := fmt.Sprintf("🆕 *Nueva versión de Helm chart*\nChart: `%s`\nRepo: `%s`\n\n📦 Versión anterior: `%s`\n✅ Versión nueva: `%s`%s",
-			chartName, pkg.Repository.Name, oldVersion, pkg.Version, appVerText)
+			chartName, pkg.Repository.Name, oldInfo.Version, pkg.Version, appVerText)
 
 		m := tgbotapi.NewMessage(chatID, msgText)
 		m.ParseMode = "Markdown"

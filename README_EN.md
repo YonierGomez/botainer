@@ -251,7 +251,7 @@ The bot automatically checks for new image versions every 6 hours (first check 5
 
 When an update is detected, it sends a notification with buttons:
 
-- **🔄 Actualizar: \<container\>** button that automatically updates the container:
+- **🔄 Update: \<container\>** button that automatically updates the container:
   - For Compose services: Edits `compose.yaml` and runs `docker compose up -d <service>`
   - For standalone containers: Recreates container with new image tag
 
@@ -276,7 +276,7 @@ Track updates for images and charts that aren't running locally:
 - Monitor Helm charts from Artifact Hub
 - Paste the chart URL or use `repo/chart` format
 - Examples: `https://artifacthub.io/packages/helm/argo/argo-cd` or `bitnami/nginx`
-- Notifications include chart version and app version
+- Notifications include chart version, app version, and container images used by the chart
 
 Both tracking features check for updates every 6 hours automatically.
 
@@ -327,7 +327,7 @@ LANGUAGE=es
 The `botainer_data` volume stores:
 - Auto-update settings per container
 - Tracked remote images and their digests
-- Tracked Helm charts with versions and metadata
+- Tracked Helm charts with versions, app versions, repos, and container images
 - Last check timestamps
 
 ### Persistence
