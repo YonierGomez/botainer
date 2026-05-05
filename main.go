@@ -2083,18 +2083,19 @@ func runImageUpdateCheck() int {
 										}
 										
 										msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\n\n"+
-											"📦 *Contenedor:* `%s`\n\n"+
+											"📦 *Contenedor(es):* `%s`\n\n"+
 											"🔴 *Actual:* `%s`\n"+
 											"🟢 *Nueva:* `%s`",
 											icon, strings.Join(names, "`, `"), imgTag, newerTag)
 										
-										// Add action buttons
+										// Add action buttons for each container
 										var rows [][]tgbotapi.InlineKeyboardButton
 										
-										// Both compose and standalone can be auto-updated
-										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-											tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar ahora", "newtag_update:"+ctrs[0].name+":"+imgTag+":"+newerTag+":"+ctrs[0].project),
-										))
+										for _, c := range ctrs {
+											rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+												tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar: "+c.name, "newtag_update:"+c.name+":"+imgTag+":"+newerTag+":"+c.project),
+											))
+										}
 										
 										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 											tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
