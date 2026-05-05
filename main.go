@@ -952,7 +952,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			
 			howto := fmt.Sprintf("📝 *Cómo actualizar %s*\n\n"+
 				"Para actualizar de `%s` a `%s`:\n\n"+
-				"1️⃣ Edita tu `docker-compose.yml` o comando de creación\n"+
+				"1️⃣ Edita tu `docker-compose.yml`\n"+
 				"2️⃣ Cambia el tag de la imagen:\n"+
 				"   `image: %s`\n"+
 				"3️⃣ Ejecuta:\n"+
@@ -960,7 +960,51 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				"💡 _O usa el comando /compose para gestionar tu proyecto_",
 				containerName, oldTag, newTag, newTag, containerName)
 			
-			bot.Send(tgbotapi.NewMessage(chatID, howto))
+			msg := tgbotapi.NewMessage(chatID, howto)
+			msg.ParseMode = "Markdown"
+			bot.Send(msg)
+		}
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
+	
+	if strings.HasPrefix(query.Data, "newtag_update:") {
+		parts := strings.Split(query.Data, ":")
+		if len(parts) >= 3 {
+			containerName := parts[1]
+			newTag := parts[2]
+			
+			editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🔄 Actualizando *%s* a `%s`...", containerName, newTag))
+			
+			// Get current container config
+			inspect, err := cli.ContainerInspect(ctx, containerName)
+			if err != nil {
+				out = fmt.Sprintf("❌ Error al inspeccionar contenedor: %v", err)
+			} else {
+				// Stop and remove old container
+				cli.ContainerStop(ctx, containerName, container.StopOptions{})
+				cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
+				
+				// Create new container with new image
+				config := inspect.Config
+				config.Image = newTag
+				
+				resp, err := cli.ContainerCreate(ctx, config, inspect.HostConfig, inspect.NetworkSettings.Networks, nil, containerName)
+				if err != nil {
+					out = fmt.Sprintf("❌ Error al crear contenedor: %v", err)
+				} else {
+					// Start new container
+					if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+						out = fmt.Sprintf("❌ Error al iniciar contenedor: %v", err)
+					} else {
+						out = fmt.Sprintf("✅ *%s* actualizado a `%s`", containerName, newTag)
+					}
+				}
+			}
+			
+			msg := tgbotapi.NewMessage(chatID, out)
+			msg.ParseMode = "Markdown"
+			bot.Send(msg)
 		}
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
@@ -2112,9 +2156,20 @@ func runImageUpdateCheck() int {
 									
 									// Add action buttons
 									var rows [][]tgbotapi.InlineKeyboardButton
-									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-										tgbotapi.NewInlineKeyboardButtonData("📝 Cómo actualizar", "newtag_howto:"+ctrs[0].name+":"+imgTag+":"+newerTag),
-									))
+									
+									// Check if it's a compose service or standalone
+									if len(ctrs) > 0 && ctrs[0].project != "" {
+										// Compose service - can't auto-update (would need to edit compose file)
+										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+											tgbotapi.NewInlineKeyboardButtonData("📝 Cómo actualizar", "newtag_howto:"+ctrs[0].name+":"+imgTag+":"+newerTag),
+										))
+									} else {
+										// Standalone container - can recreate with new tag
+										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+											tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar ahora", "newtag_update:"+ctrs[0].name+":"+newerTag),
+										))
+									}
+									
 									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 										tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 									))
