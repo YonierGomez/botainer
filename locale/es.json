@@ -24,6 +24,8 @@
   "menu_checkupdates": "🐳 Buscar actualizaciones",
   "menu_updateall": "🐳 Actualizar todo",
   "menu_autoupdate": "🔁 Auto-update",
+  "menu_trackimage": "📡 Trackear imagen remota",
+  "menu_trackchart": "📦 Trackear Helm chart",
   "menu_search": "🐳 Buscar",
   "menu_env": "🐳 Variables de entorno",
   "menu_favorites": "🐳 Favoritos",

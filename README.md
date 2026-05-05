@@ -23,7 +23,7 @@
 ![Telegram](https://img.shields.io/badge/Telegram-26A5E4?logo=telegram&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?logo=docker&logoColor=white)
 
-Telegram bot written in Go to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, and an interactive button interface.
+Telegram bot written in Go to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, remote image tracking, Helm chart monitoring, and an interactive button interface.
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
@@ -191,6 +191,8 @@ The `/var/run/docker.sock` volume gives access to the host Docker daemon. The `/
 | `/checkupdates` | Manually check for image updates |
 | `/updateall` | Update all images and recreate containers |
 | `/images` | List local images |
+| `/trackimage` | Track remote Docker images for updates |
+| `/trackchart` | Track Helm charts from Artifact Hub |
 
 ### Docker Compose
 
@@ -239,6 +241,23 @@ When an update is detected, it sends a notification with buttons:
 
 - If the container belongs to a Docker Compose project → **🔄 Pull & Up: \<project\>** button that runs `pull` + `up -d`
 - If it's a standalone container → **🔄 Recreate: \<name\>** button
+
+### Remote image & Helm chart tracking
+
+Track updates for images and charts that aren't running locally:
+
+**Track Docker images** (`/trackimage`):
+- Monitor any Docker image from Docker Hub, GHCR, or private registries
+- Supports formats: `nginx:latest`, `ghcr.io/user/app:main`, `registry.io/image:tag`
+- Get notifications when new versions are available
+
+**Track Helm charts** (`/trackchart`):
+- Monitor Helm charts from Artifact Hub
+- Paste the chart URL or use `repo/chart` format
+- Examples: `https://artifacthub.io/packages/helm/argo/argo-cd` or `bitnami/nginx`
+- Notifications include chart version and app version
+
+Both tracking features check for updates every 6 hours automatically.
 
 ---
 

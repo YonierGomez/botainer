@@ -6,7 +6,7 @@
 
   <!-- Primary SEO -->
   <title>Botainer — Manage Docker from Telegram</title>
-  <meta name="description" content="Open-source Telegram bot written in Go to manage Docker containers from your phone. 25+ commands, real-time notifications, Docker Compose support, multi-arch image." />
+  <meta name="description" content="Open-source Telegram bot written in Go to manage Docker containers from your phone. 25+ commands, real-time notifications, remote image tracking, Helm chart monitoring, Docker Compose support." />
   <meta name="keywords" content="docker telegram bot, manage docker remotely, docker bot go, botainer, docker compose telegram, container management bot, self-hosted docker bot" />
   <meta name="author" content="Yonier Gomez" />
   <meta name="robots" content="index, follow" />
@@ -20,7 +20,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Botainer" />
   <meta property="og:title" content="Botainer — Manage Docker from Telegram" />
-  <meta property="og:description" content="Open-source Telegram bot written in Go. Manage Docker containers from anywhere with 25+ commands, real-time alerts, and Docker Compose support." />
+  <meta property="og:description" content="Open-source Telegram bot written in Go. Manage Docker containers from anywhere with 25+ commands, real-time alerts, remote image tracking, and Helm chart monitoring." />
   <meta property="og:url" content="https://yoniergomez.github.io/botainer/" />
   <meta property="og:image" content="https://yoniergomez.github.io/botainer/bot-image.png" />
   <meta property="og:image:width" content="1200" />
@@ -42,7 +42,7 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Botainer",
-    "description": "Open-source Telegram bot written in Go to manage Docker containers remotely. 25+ commands, real-time notifications, Docker Compose support.",
+    "description": "Open-source Telegram bot written in Go to manage Docker containers remotely. 25+ commands, real-time notifications, remote image tracking, Helm chart monitoring, Docker Compose support.",
     "url": "https://yoniergomez.github.io/botainer/",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
@@ -248,7 +248,7 @@
   <div class="hero-left">
     <div class="hero-eyebrow">Open Source · Written in Go</div>
     <h1>Docker in your<br/><span class="line2">pocket.</span></h1>
-    <p class="hero-desc">Telegram bot to manage Docker containers from anywhere. 25+ commands, real-time notifications, Docker Compose, automatic diagnostics.</p>
+    <p class="hero-desc">Telegram bot to manage Docker containers from anywhere. 25+ commands, real-time notifications, Docker Compose, remote image tracking, Helm chart monitoring.</p>
     <div class="hero-actions">
       <a class="btn-primary" href="https://github.com/YonierGomez/botainer" target="_blank">⭐ View on GitHub</a>
       <a class="btn-ghost" href="#install">→ Quick install</a>
@@ -305,6 +305,8 @@
     <div class="feat"><div class="feat-icon">📜</div><h3>Advanced logs</h3><p>Error highlighting, filters, refresh and download as .log file.</p></div>
     <div class="feat"><div class="feat-icon">🔧</div><h3>Auto diagnostics</h3><p>Detects stopped containers, unhealthy status, high CPU and unused images.</p></div>
     <div class="feat"><div class="feat-icon">🔍</div><h3>Universal search</h3><p>Search across containers, images and volumes with a single command.</p></div>
+    <div class="feat"><div class="feat-icon">📡</div><h3>Remote image tracking</h3><p>Monitor Docker images from any registry (Docker Hub, GHCR, private) for updates.</p></div>
+    <div class="feat"><div class="feat-icon">📦</div><h3>Helm chart monitoring</h3><p>Track Helm charts from Artifact Hub and get notified of new versions.</p></div>
     <div class="feat"><div class="feat-icon">⭐</div><h3>Favorites</h3><p>Quick access to your most-used containers, persistent per user.</p></div>
     <div class="feat"><div class="feat-icon">🔐</div><h3>Whitelist security</h3><p>Only authorized users can interact with the bot.</p></div>
   </div>
@@ -338,8 +340,12 @@
         <ul class="cmd-list"><li>/images</li><li>/volumes</li><li>/networks</li><li>/prune</li><li>/updateall</li></ul>
       </div>
       <div>
+        <div class="cmd-group-title">Tracking</div>
+        <ul class="cmd-list"><li>/trackimage</li><li>/trackchart</li><li>/checkupdates</li><li>/autoupdate</li></ul>
+      </div>
+      <div>
         <div class="cmd-group-title">Utilities</div>
-        <ul class="cmd-list"><li>/checkupdates</li><li>/favorites</li><li>/history</li><li>/diagnose</li><li>/donate</li></ul>
+        <ul class="cmd-list"><li>/favorites</li><li>/history</li><li>/diagnose</li><li>/backup</li></ul>
       </div>
     </div>
   </div>

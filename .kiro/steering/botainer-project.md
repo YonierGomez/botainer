@@ -2,11 +2,12 @@
 
 ## What is Botainer
 
-Botainer is an open-source Telegram bot written in Go that allows managing Docker containers remotely from a phone or any Telegram client. It supports 25+ commands, real-time notifications, Docker Compose management, automatic image update detection, and multi-arch Docker images (amd64 + arm64).
+Botainer is an open-source Telegram bot written in Go that allows managing Docker containers remotely from a phone or any Telegram client. It supports 25+ commands, real-time notifications, Docker Compose management, automatic image update detection, remote image tracking, Helm chart monitoring, and multi-arch Docker images (amd64 + arm64).
 
 - **Repo**: https://github.com/YonierGomez/botainer
 - **Landing**: https://yoniergomez.github.io/botainer/
 - **Docker Hub**: https://hub.docker.com/r/yoniergomez/botainer
+- **Version**: 1.2.0
 - **Author**: Yonier Gomez — https://yonier.com
 
 ---
@@ -109,6 +110,30 @@ docker logs --tail 5 botainer
 ```
 
 Expected output: `Bot iniciado: @botainerbot`
+
+---
+
+## Key Features (v1.2.0)
+
+### Remote Image Tracking
+- **Command**: `/trackimage`
+- Monitor Docker images from any registry (Docker Hub, GHCR, private)
+- Supports formats: `nginx:latest`, `ghcr.io/user/app:main`, `registry.io/image:tag`
+- Stores image:digest mapping in `/data/config.json`
+- Checks every 6 hours, sends notification on new version
+
+### Helm Chart Tracking
+- **Command**: `/trackchart`
+- Monitor Helm charts from Artifact Hub
+- Supports `repo/chart` format or full URL: `https://artifacthub.io/packages/helm/argo/argo-cd`
+- Uses Artifact Hub API: `GET https://artifacthub.io/api/v1/packages/helm/{repo}/{chart}`
+- Stores chart:version mapping, checks every 6 hours
+- Notifications include chart version and app version
+
+### Container Deletion
+- Normal delete attempt first
+- If fails, offers "Force delete" button
+- Force delete uses `RemoveOptions{Force: true, RemoveVolumes: true}`
 
 ---
 
