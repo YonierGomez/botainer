@@ -2035,34 +2035,42 @@ func runImageUpdateCheck() int {
 	}
 
 	found := 0
+	semaphore := make(chan struct{}, 10) // Limit to 10 concurrent checks
+	var wg sync.WaitGroup
+	
 	for imageTag, containers := range imageMap {
-		inspect, _ := cli.ContainerInspect(ctx, containers[0].name)
-		localID := inspect.Image
+		wg.Add(1)
+		semaphore <- struct{}{} // Acquire
+		
+		go func(imgTag string, ctrs []containerInfo) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // Release
+			
+			inspect, _ := cli.ContainerInspect(ctx, ctrs[0].name)
+			localID := inspect.Image
 
-		reader, err := cli.ImagePull(ctx, imageTag, image.PullOptions{})
-		if err == nil {
-			io.Copy(io.Discard, reader)
-			reader.Close()
-		}
+			reader, err := cli.ImagePull(ctx, imgTag, image.PullOptions{})
+			if err == nil {
+				io.Copy(io.Discard, reader)
+				reader.Close()
+			}
 
-		imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imageTag)
-		newID := imgInspect.ID
+			imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imgTag)
+			newID := imgInspect.ID
 
-		// Check for digest-based update (existing logic)
-		if localID == "" || newID == "" || localID == newID {
-			// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
-			// Only for semver tags (skip latest, alpine, etc.)
-			if localID != "" && newID != "" && localID == newID {
-				// Quick check: only process if tag looks like semver
-				parts := strings.Split(imageTag, ":")
-				if len(parts) == 2 {
-					tag := parts[1]
-					// Skip floating tags
-					if !skipTags[tag] {
-						// Check if tag starts with a number (likely semver)
-						if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
-							// Run in goroutine to avoid blocking
-							go func(imgTag string, ctrs []containerInfo) {
+			// Check for digest-based update (existing logic)
+			if localID == "" || newID == "" || localID == newID {
+				// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
+				// Only for semver tags (skip latest, alpine, etc.)
+				if localID != "" && newID != "" && localID == newID {
+					// Quick check: only process if tag looks like semver
+					parts := strings.Split(imgTag, ":")
+					if len(parts) == 2 {
+						tag := parts[1]
+						// Skip floating tags
+						if !skipTags[tag] {
+							// Check if tag starts with a number (likely semver)
+							if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
 								newerTag, err := findNewerTag(imgTag)
 								if err == nil && newerTag != "" {
 									log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
@@ -2091,14 +2099,15 @@ func runImageUpdateCheck() int {
 									m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 									bot.Send(m)
 								}
-							}(imageTag, containers)
+							}
 						}
 					}
 				}
+				return
 			}
-			continue
-		}
-		found++
+			
+			// Digest changed - send update notification
+			found++
 
 		oldVer := localID
 		newVer := newID
@@ -2199,7 +2208,10 @@ func runImageUpdateCheck() int {
 		))
 		m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 		bot.Send(m)
+		}(imageTag, containers)
 	}
+	
+	wg.Wait() // Wait for all goroutines to finish
 	return found
 }
 
