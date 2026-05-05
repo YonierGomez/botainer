@@ -34,7 +34,7 @@
   "menu_uptime": "🐳 Uptime",
   "menu_backup": "🐳 Backup volumen",
   
-  "bot_started": "🤖 Botainer v$1\n🟢 Activo\n\n_Bot iniciado correctamente_",
+  "bot_started": "🤖 Botainer v$1\n🟢 Activo\n\n✨ *Novedades v1.2.0*\n📡 Trackeo de imágenes remotas\n📦 Monitoreo de Helm charts\n⚡ Diagnóstico optimizado\n🗑️ Eliminación forzada\n\n_Bot iniciado correctamente_",
   "button_news_channel": "📢 Canal de Novedades",
   "button_close": "❌ Cerrar",
   "button_cancel": "❌ Cancelar",
