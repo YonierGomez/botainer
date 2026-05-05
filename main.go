@@ -1406,7 +1406,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 		// Up -d (timeout 3 minutos)
-		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d")
+		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--remove-orphans")
 		if upErr != nil {
 			log.Printf("Compose up error for %s: %v\nOutput: %s", target, upErr, upOut)
 			out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
@@ -1463,7 +1463,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 		// Up -d only the specific service (timeout 3 minutos)
-		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", service)
+		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--remove-orphans", service)
 		if upErr != nil {
 			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
 			out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
