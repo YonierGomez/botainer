@@ -981,6 +981,8 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			
 			editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🔄 Actualizando *%s* a `%s`...", containerName, newTag))
 			
+			var out string
+			
 			if project != "" {
 				// Compose service - edit compose file and run up
 				workDir := getComposeWorkDir(project)
@@ -1022,7 +1024,12 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					config := inspect.Config
 					config.Image = newTag
 					
-					resp, err := cli.ContainerCreate(ctx, config, inspect.HostConfig, inspect.NetworkSettings.Networks, nil, containerName)
+					// Build network config
+					networkConfig := &network.NetworkingConfig{
+						EndpointsConfig: inspect.NetworkSettings.Networks,
+					}
+					
+					resp, err := cli.ContainerCreate(ctx, config, inspect.HostConfig, networkConfig, nil, containerName)
 					if err != nil {
 						out = fmt.Sprintf("❌ Error al crear contenedor: %v", err)
 					} else {
