@@ -1367,58 +1367,6 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = fmt.Sprintf("✅ *%s* recreado con nueva imagen", target)
 		}
 
-	case "compose_pullup":
-		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Actualizando proyecto *%s*...", target))
-
-		workDir := getComposeWorkDir(target)
-		if workDir == "" {
-			out = "❌ No se encontró el directorio del proyecto o archivo compose"
-			break
-		}
-
-		composeFile := findComposeFile(workDir)
-		if composeFile == "" {
-			out = fmt.Sprintf("❌ No se encontró archivo compose en: `%s`", workDir)
-			break
-		}
-
-		log.Printf("Updating compose project %s with file: %s", target, composeFile)
-
-		// Pull images (timeout 5 minutos)
-		pullOut, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull")
-		if pullErr != nil {
-			log.Printf("Compose pull error for %s: %v\nOutput: %s", target, pullErr, pullOut)
-			
-			// Check if error is due to local images (not in registry)
-			isLocalImageError := strings.Contains(pullOut, "pull access denied") || 
-				strings.Contains(pullOut, "repository does not exist")
-			
-			if !isLocalImageError {
-				// Real pull error (network, permissions, etc.)
-				out = fmt.Sprintf("❌ Error al hacer pull:\n```\n%s\n```", pullOut)
-				if len(out) > 3800 {
-					out = out[:3800] + "\n...\n```"
-				}
-				break
-			}
-			// If local image error, continue with up
-			log.Printf("Local image detected in %s, continuing with up", target)
-		}
-
-		// Up -d (timeout 3 minutos)
-		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d")
-		if upErr != nil {
-			log.Printf("Compose up error for %s: %v\nOutput: %s", target, upErr, upOut)
-			out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
-			if len(out) > 3800 {
-				out = out[:3800] + "\n...\n```"
-			}
-			break
-		}
-
-		log.Printf("Successfully updated compose project: %s", target)
-		out = fmt.Sprintf("✅ Proyecto *%s* actualizado correctamente", target)
-
 	case "compose_pullup_service":
 		// Format: project:service
 		parts := strings.SplitN(target, ":", 2)
@@ -1463,7 +1411,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 		// Up -d only the specific service (timeout 3 minutos)
-		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", service)
+		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--remove-orphans", service)
 		if upErr != nil {
 			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
 			out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
@@ -2168,35 +2116,7 @@ func runImageUpdateCheck() int {
 
 		var rows [][]tgbotapi.InlineKeyboardButton
 
-		// Group by project for compose buttons
-		if len(projectSet) > 0 {
-			for project := range projectSet {
-				// Check if any container in this update is botainer
-				isBotainerUpdate := false
-				var botainerService string
-				for _, c := range containers {
-					if c.name == "botainer" && c.project == project {
-						isBotainerUpdate = true
-						botainerService = c.name
-						break
-					}
-				}
-				
-				if isBotainerUpdate {
-					// For botainer, only update the service, not the whole project
-					rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-						tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+botainerService, "compose_pullup_service:"+project+":"+botainerService),
-					))
-				} else {
-					// For other projects, update the whole project
-					rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-						tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+project, "compose_pullup:"+project),
-					))
-				}
-			}
-		}
-
-		// Individual container buttons for non-compose or standalone
+		// Create buttons for each container with updates (service-specific only)
 		for _, c := range containers {
 			alreadyDone := false
 			for _, au := range autoUpdated {
@@ -2208,17 +2128,20 @@ func runImageUpdateCheck() int {
 			if alreadyDone {
 				continue
 			}
-			if alreadyDone {
-				continue
-			}
 
-			// Only show individual buttons if not compose or if user wants granular control
-			if c.project == "" {
+			if c.project != "" {
+				// Compose project: update only the specific service
+				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+c.name, "compose_pullup_service:"+c.project+":"+c.name),
+				))
+			} else {
+				// Standalone container: recreate
 				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 					tgbotapi.NewInlineKeyboardButtonData("🔄 Recrear: "+c.name, "update_recreate:"+c.name),
 				))
 			}
 		}
+
 
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
