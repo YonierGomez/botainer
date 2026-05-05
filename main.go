@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	botVersion     = "1.2.0"                      // Remote image & Helm chart tracking
+	botVersion     = "1.2.1"                      // Smart update detection & performance boost
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
