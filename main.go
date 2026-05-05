@@ -2035,9 +2035,6 @@ func runImageUpdateCheck() int {
 	semaphore := make(chan struct{}, 10) // Limit to 10 concurrent checks
 	var wg sync.WaitGroup
 	
-	newerTagChecks := 0
-	maxNewerTagChecks := 5 // Only check 5 images for newer tags
-	
 	for imageTag, containers := range imageMap {
 		wg.Add(1)
 		semaphore <- struct{}{} // Acquire
@@ -2062,7 +2059,7 @@ func runImageUpdateCheck() int {
 			if localID == "" || newID == "" || localID == newID {
 				// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
 				// Only for semver tags (skip latest, alpine, etc.)
-				if localID != "" && newID != "" && localID == newID && newerTagChecks < maxNewerTagChecks {
+				if localID != "" && newID != "" && localID == newID {
 					// Quick check: only process if tag looks like semver
 					parts := strings.Split(imgTag, ":")
 					if len(parts) == 2 {
@@ -2071,7 +2068,6 @@ func runImageUpdateCheck() int {
 						if !skipTags[tag] {
 							// Check if tag starts with a number (likely semver)
 							if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
-								newerTagChecks++
 								
 								// Use a timeout for tag checking
 								done := make(chan bool, 1)
