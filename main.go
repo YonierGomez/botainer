@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -3796,6 +3797,9 @@ func findNewerTag(imageTag string) (string, error) {
 	var best *semver.Version
 	var bestTag string
 	
+	// Determine if current version is major.minor or major.minor.patch
+	currentParts := strings.Split(cv.String(), ".")
+	
 	for _, tag := range allTags {
 		// Skip floating tags
 		if skipTags[tag] {
@@ -3817,6 +3821,21 @@ func findNewerTag(imageTag string) (string, error) {
 		// Skip pre-releases
 		if v.Prerelease() != "" {
 			continue
+		}
+		
+		// Only compare versions with similar structure (e.g., 3.18 vs 3.21, not 3.18 vs 20260127)
+		candidateParts := strings.Split(v.String(), ".")
+		if len(candidateParts) != len(currentParts) {
+			continue
+		}
+		
+		// Skip if major version is drastically different (likely a date-based tag)
+		if len(candidateParts) > 0 && len(currentParts) > 0 {
+			currentMajor, _ := strconv.Atoi(currentParts[0])
+			candidateMajor, _ := strconv.Atoi(candidateParts[0])
+			if candidateMajor > 100 || (currentMajor < 100 && candidateMajor > currentMajor*10) {
+				continue // Likely a date-based tag like 20260127
+			}
 		}
 		
 		// Check if newer
