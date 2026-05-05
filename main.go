@@ -942,6 +942,29 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	}
+	
+	if strings.HasPrefix(query.Data, "newtag_howto:") {
+		parts := strings.Split(query.Data, ":")
+		if len(parts) >= 4 {
+			containerName := parts[1]
+			oldTag := parts[2]
+			newTag := parts[3]
+			
+			howto := fmt.Sprintf("📝 *Cómo actualizar %s*\n\n"+
+				"Para actualizar de `%s` a `%s`:\n\n"+
+				"1️⃣ Edita tu `docker-compose.yml` o comando de creación\n"+
+				"2️⃣ Cambia el tag de la imagen:\n"+
+				"   `image: %s`\n"+
+				"3️⃣ Ejecuta:\n"+
+				"   `docker compose up -d %s`\n\n"+
+				"💡 _O usa el comando /compose para gestionar tu proyecto_",
+				containerName, oldTag, newTag, newTag, containerName)
+			
+			bot.Send(tgbotapi.NewMessage(chatID, howto))
+		}
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
 
 	parts := strings.SplitN(query.Data, ":", 2)
 	if len(parts) != 2 {
@@ -2089,6 +2112,9 @@ func runImageUpdateCheck() int {
 									
 									// Add action buttons
 									var rows [][]tgbotapi.InlineKeyboardButton
+									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+										tgbotapi.NewInlineKeyboardButtonData("📝 Cómo actualizar", "newtag_howto:"+ctrs[0].name+":"+imgTag+":"+newerTag),
+									))
 									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 										tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 									))
