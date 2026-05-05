@@ -2063,8 +2063,16 @@ func runImageUpdateCheck() int {
 							names = append(names, c.name)
 						}
 						
-						msgText := fmt.Sprintf("🔔 %s *Tag más nuevo disponible*\nImagen actual: `%s`\n✨ Disponible: `%s`\nContenedor(es): `%s`\n\n💡 _Considera actualizar al tag más reciente_",
-							icon, imgTag, newerTag, strings.Join(names, "`, `"))
+						// Extract version from tags for cleaner display
+						currentVer := strings.Split(imgTag, ":")[1]
+						newerVer := strings.Split(newerTag, ":")[1]
+						
+						msgText := fmt.Sprintf("🔔 %s *Versión más reciente disponible*\n\n"+
+							"📦 *Contenedor:* `%s`\n"+
+							"🏷️ *Actual:* `%s`\n"+
+							"✨ *Disponible:* `%s`\n\n"+
+							"💡 _Puedes actualizar manualmente cambiando el tag en tu compose_",
+							icon, strings.Join(names, "`, `"), currentVer, newerVer)
 						
 						m := tgbotapi.NewMessage(notifyChatID, msgText)
 						m.ParseMode = "Markdown"
