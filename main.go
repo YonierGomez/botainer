@@ -416,7 +416,6 @@ func handleStart(chatID int64) {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Update All", "cmd:updateall"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
@@ -470,114 +469,6 @@ func handleNetworks(chatID int64) {
 			),
 		)
 		msg.ReplyMarkup = keyboard
-		bot.Send(msg)
-	}
-}
-
-func handleUpdateAll(chatID int64) {
-	ctx := context.Background()
-	containers, err := cli.ContainerList(ctx, container.ListOptions{})
-	if err != nil {
-		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
-		return
-	}
-
-	statusMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 Verificando %d contenedores...", len(containers))))
-
-	type containerInfo struct {
-		name, imageTag, oldID string
-	}
-
-	var containerList []containerInfo
-	imageSet := make(map[string]bool)
-
-	for _, c := range containers {
-		name := strings.TrimPrefix(c.Names[0], "/")
-		inspect, _ := cli.ContainerInspect(ctx, c.ID)
-		containerList = append(containerList, containerInfo{name, inspect.Config.Image, inspect.Image})
-		imageSet[inspect.Config.Image] = true
-	}
-
-	pulledImages := make(map[string]string)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	for imageTag := range imageSet {
-		wg.Add(1)
-		go func(img string) {
-			defer wg.Done()
-			reader, err := cli.ImagePull(ctx, img, image.PullOptions{})
-			if err != nil {
-				log.Printf("Error pulling %s: %v", img, err)
-				return
-			}
-			io.Copy(io.Discard, reader)
-			reader.Close()
-
-			imgInspect, _, err := cli.ImageInspectWithRaw(ctx, img)
-			if err != nil {
-				log.Printf("Error inspecting %s: %v", img, err)
-				return
-			}
-
-			mu.Lock()
-			pulledImages[img] = imgInspect.ID
-			mu.Unlock()
-			log.Printf("Pulled %s: %s", img, imgInspect.ID[:12])
-		}(imageTag)
-	}
-
-	wg.Wait()
-
-	var updates []struct{ name, image string }
-	for _, c := range containerList {
-		newID := pulledImages[c.imageTag]
-		if newID == "" {
-			newID = c.oldID
-		}
-
-		oldShort := c.oldID
-		if len(oldShort) > 12 {
-			oldShort = oldShort[:12]
-		}
-		newShort := newID
-		if len(newShort) > 12 {
-			newShort = newShort[:12]
-		}
-
-		log.Printf("Container %s: old=%s new=%s", c.name, oldShort, newShort)
-		if c.oldID != newID && newID != "" {
-			updates = append(updates, struct{ name, image string }{c.name, c.imageTag})
-		}
-	}
-
-	bot.Request(tgbotapi.NewDeleteMessage(chatID, statusMsg.MessageID))
-
-	if len(updates) == 0 {
-		sendMessageWithClose(chatID, "✅ Todas las imágenes están actualizadas")
-		return
-	}
-
-	for _, u := range updates {
-		text := fmt.Sprintf("🆕 *Actualización disponible*\n\n📦 Contenedor: `%s`\n🖼️ Imagen: `%s`", u.name, u.image)
-		msg := tgbotapi.NewMessage(chatID, text)
-		msg.ParseMode = "Markdown"
-
-		project := ""
-		inspect, _ := cli.ContainerInspect(ctx, u.name)
-		if p := inspect.Config.Labels["com.docker.compose.project"]; p != "" {
-			project = p
-		}
-
-		var buttons []tgbotapi.InlineKeyboardButton
-		if project != "" {
-			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+u.name, "compose_pullup_service:"+project+":"+u.name))
-		} else {
-			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData("🔄 Recrear", "update_recreate:"+u.name))
-		}
-		buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData("❌ Ignorar", "close"))
-
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(buttons...))
 		bot.Send(msg)
 	}
 }
@@ -1088,8 +979,6 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			go handleVolumes(chatID)
 		case "networks":
 			go handleNetworks(chatID)
-		case "updateall":
-			go handleUpdateAll(chatID)
 		case "check_updates":
 			go func() {
 				sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
@@ -3614,7 +3503,6 @@ func main() {
 		// Images & Updates
 		{Command: "images", Description: getText("menu_images")},
 		{Command: "checkupdates", Description: getText("menu_checkupdates")},
-		{Command: "updateall", Description: getText("menu_updateall")},
 		{Command: "autoupdate", Description: getText("menu_autoupdate")},
 		{Command: "trackimage", Description: getText("menu_trackimage")},
 		{Command: "trackchart", Description: getText("menu_trackchart")},
