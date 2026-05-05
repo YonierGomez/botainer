@@ -860,14 +860,16 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	}
 	
 	if strings.HasPrefix(query.Data, "newtag_update:") {
-		parts := strings.Split(query.Data, ":")
-		if len(parts) >= 4 {
-			containerName := parts[1]
-			oldTag := parts[2]
-			newTag := parts[3]
+		// Format: newtag_update:containerName|oldTag|newTag|project
+		data := strings.TrimPrefix(query.Data, "newtag_update:")
+		parts := strings.Split(data, "|")
+		if len(parts) >= 3 {
+			containerName := parts[0]
+			oldTag := parts[1]
+			newTag := parts[2]
 			project := ""
-			if len(parts) >= 5 {
-				project = parts[4]
+			if len(parts) >= 4 {
+				project = parts[3]
 			}
 			
 			editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🔄 Actualizando *%s* a `%s`...", containerName, newTag))
@@ -2093,7 +2095,7 @@ func runImageUpdateCheck() int {
 										
 										for _, c := range ctrs {
 											rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-												tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar: "+c.name, "newtag_update:"+c.name+":"+imgTag+":"+newerTag+":"+c.project),
+												tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar: "+c.name, "newtag_update:"+c.name+"|"+imgTag+"|"+newerTag+"|"+c.project),
 											))
 										}
 										
