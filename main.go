@@ -909,28 +909,34 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				if err != nil {
 					out = fmt.Sprintf("❌ Error al inspeccionar contenedor: %v", err)
 				} else {
-					// Stop and remove old container
-					cli.ContainerStop(ctx, containerName, container.StopOptions{})
-					cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
-					
-					// Create new container with new image
-					config := inspect.Config
-					config.Image = newTag
-					
-					// Build network config
-					networkConfig := &network.NetworkingConfig{
-						EndpointsConfig: inspect.NetworkSettings.Networks,
-					}
-					
-					resp, err := cli.ContainerCreate(ctx, config, inspect.HostConfig, networkConfig, nil, containerName)
-					if err != nil {
-						out = fmt.Sprintf("❌ Error al crear contenedor: %v", err)
+					// Pull new image first
+					pullOut, pullErr := runCmdWithTimeout(2*time.Minute, "docker", "pull", newTag)
+					if pullErr != nil {
+						out = fmt.Sprintf("❌ Error al descargar imagen: %v\n%s", pullErr, pullOut)
 					} else {
-						// Start new container
-						if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-							out = fmt.Sprintf("❌ Error al iniciar contenedor: %v", err)
+						// Stop and remove old container
+						cli.ContainerStop(ctx, containerName, container.StopOptions{})
+						cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
+						
+						// Create new container with new image
+						config := inspect.Config
+						config.Image = newTag
+						
+						// Build network config
+						networkConfig := &network.NetworkingConfig{
+							EndpointsConfig: inspect.NetworkSettings.Networks,
+						}
+						
+						resp, err := cli.ContainerCreate(ctx, config, inspect.HostConfig, networkConfig, nil, containerName)
+						if err != nil {
+							out = fmt.Sprintf("❌ Error al crear contenedor: %v", err)
 						} else {
-							out = fmt.Sprintf("✅ *%s* actualizado a `%s`", containerName, newTag)
+							// Start new container
+							if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+								out = fmt.Sprintf("❌ Error al iniciar contenedor: %v", err)
+							} else {
+								out = fmt.Sprintf("✅ *%s* actualizado a `%s`", containerName, newTag)
+							}
 						}
 					}
 				}
