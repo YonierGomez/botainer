@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	botVersion     = "1.1.0"                      // Multi-language support
+	botVersion     = "1.2.0"                      // Remote image & Helm chart tracking
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -39,6 +39,8 @@ var (
 	userState               = make(map[int64]string)
 	createData              = make(map[int64]map[string]string)
 	autoUpdateContainers    = make(map[string]bool)
+	trackedImages           = make(map[string]string) // image:tag -> last known digest
+	trackedCharts           = make(map[string]string) // repo/chart -> last known version
 	checkUpdatesInterval    = 6 * time.Hour
 	enableAutoCheck         = true
 	enableStartupNotif      = true
@@ -59,8 +61,19 @@ var (
 
 // Config structure for persistence
 type Config struct {
-	AutoUpdateContainers map[string]bool `json:"autoUpdateContainers"`
-	LastCheck            time.Time       `json:"lastCheck"`
+	AutoUpdateContainers map[string]bool   `json:"autoUpdateContainers"`
+	TrackedImages        map[string]string `json:"trackedImages"` // image:tag -> digest
+	TrackedCharts        map[string]string `json:"trackedCharts"` // repo/chart -> version
+	LastCheck            time.Time         `json:"lastCheck"`
+}
+
+// ArtifactHubPackage represents a package from Artifact Hub API
+type ArtifactHubPackage struct {
+	Version     string `json:"version"`
+	AppVersion  string `json:"app_version"`
+	Repository  struct {
+		Name string `json:"name"`
+	} `json:"repository"`
 }
 
 // Load configuration from file
@@ -83,6 +96,14 @@ func loadConfig() {
 	if autoUpdateContainers == nil {
 		autoUpdateContainers = make(map[string]bool)
 	}
+	trackedImages = cfg.TrackedImages
+	if trackedImages == nil {
+		trackedImages = make(map[string]string)
+	}
+	trackedCharts = cfg.TrackedCharts
+	if trackedCharts == nil {
+		trackedCharts = make(map[string]string)
+	}
 }
 
 // Save configuration to file
@@ -92,6 +113,8 @@ func saveConfig() {
 
 	cfg := Config{
 		AutoUpdateContainers: autoUpdateContainers,
+		TrackedImages:        trackedImages,
+		TrackedCharts:        trackedCharts,
 		LastCheck:            time.Now(),
 	}
 
@@ -234,41 +257,51 @@ func normalizeID(id string) string {
 func getStats() map[string]struct{ CPU, Mem string } {
 	ctx := context.Background()
 	stats := make(map[string]struct{ CPU, Mem string })
+	var mu sync.Mutex
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{})
 	if err != nil {
 		return stats
 	}
 
+	var wg sync.WaitGroup
 	for _, c := range containers {
-		name := strings.TrimPrefix(c.Names[0], "/")
-		statsResp, err := cli.ContainerStats(ctx, c.ID, false)
-		if err != nil {
-			continue
-		}
-		defer statsResp.Body.Close()
+		wg.Add(1)
+		go func(cont types.Container) {
+			defer wg.Done()
+			
+			name := strings.TrimPrefix(cont.Names[0], "/")
+			statsResp, err := cli.ContainerStats(ctx, cont.ID, false)
+			if err != nil {
+				return
+			}
+			defer statsResp.Body.Close()
 
-		var v container.StatsResponse
-		if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
-			continue
-		}
+			var v container.StatsResponse
+			if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
+				return
+			}
 
-		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
-		cpuPercent := 0.0
-		if systemDelta > 0 && cpuDelta > 0 {
-			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
-		}
+			cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+			systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+			cpuPercent := 0.0
+			if systemDelta > 0 && cpuDelta > 0 {
+				cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+			}
 
-		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
+			memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
+			memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
 
-		stats[name] = struct{ CPU, Mem string }{
-			fmt.Sprintf("%.2f%%", cpuPercent),
-			fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit),
-		}
+			mu.Lock()
+			stats[name] = struct{ CPU, Mem string }{
+				fmt.Sprintf("%.2f%%", cpuPercent),
+				fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit),
+			}
+			mu.Unlock()
+		}(c)
 	}
 
+	wg.Wait()
 	return stats
 }
 
@@ -951,6 +984,10 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				sendMessageWithClose(chatID, "🔍 Buscando actualizaciones de imágenes...")
 				runImageUpdateCheckWithFeedback(chatID)
 			}()
+		case "trackimage":
+			go handleTrackImage(chatID)
+		case "trackchart":
+			go handleTrackChart(chatID)
 		case "list":
 			go handleList(chatID)
 		case "diagnose":
@@ -1061,9 +1098,29 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 	case "remove":
-		err = cli.ContainerRemove(ctx, target, container.RemoveOptions{Force: true})
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Eliminando *%s*...", target))
+		err = cli.ContainerRemove(ctx, target, container.RemoveOptions{})
 		if err == nil {
 			out = fmt.Sprintf("✅ *%s* eliminado", target)
+		} else {
+			msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⚠️ No se pudo eliminar *%s*\n\n```\n%s\n```\n\n¿Deseas forzar la eliminación?", target, err.Error()))
+			msg.ParseMode = "Markdown"
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("💪 Forzar eliminación", "remove_force:"+target),
+					tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+				),
+			)
+			bot.Send(msg)
+			bot.Request(tgbotapi.NewCallback(query.ID, ""))
+			return
+		}
+
+	case "remove_force":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Forzando eliminación de *%s*...", target))
+		err = cli.ContainerRemove(ctx, target, container.RemoveOptions{Force: true, RemoveVolumes: true})
+		if err == nil {
+			out = fmt.Sprintf("✅ *%s* eliminado forzadamente", target)
 		}
 
 	case "pause":
@@ -1602,6 +1659,110 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		go handleAutoUpdate(chatID)
 		bot.Request(tgbotapi.NewCallback(query.ID, "✅ Configuración guardada"))
 		return
+
+	case "track_add":
+		msg := tgbotapi.NewMessage(chatID, "📡 *Agregar imagen para trackear*\n\nEnvía el nombre completo de la imagen:\n\nEjemplos:\n• `nginx:latest`\n• `ghcr.io/user/app:main`\n• `docker.io/library/redis:alpine`\n• `registry.hub.docker.com/postgres:15`")
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+			),
+		)
+		bot.Send(msg)
+		userState[query.From.ID] = "waiting_track_image"
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "track_remove":
+		if len(trackedImages) == 0 {
+			bot.Request(tgbotapi.NewCallback(query.ID, "❌ No hay imágenes trackeadas"))
+			return
+		}
+		var rows [][]tgbotapi.InlineKeyboardButton
+		for img := range trackedImages {
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ "+img, "track_del:"+img),
+			))
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Atrás", "cmd:trackimage"),
+		))
+		edit := tgbotapi.NewEditMessageText(chatID, query.Message.MessageID, "📡 *Remover imagen trackeada*\n\nSelecciona la imagen a remover:")
+		edit.ParseMode = "Markdown"
+		edit.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
+		bot.Send(edit)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "track_del":
+		delete(trackedImages, target)
+		saveConfig()
+		bot.Request(tgbotapi.NewCallback(query.ID, "✅ Imagen removida"))
+		go handleTrackImage(chatID)
+		return
+
+	case "track_check":
+		go func() {
+			bot.Request(tgbotapi.NewCallback(query.ID, "🔍 Verificando..."))
+			checkTrackedImages(chatID)
+		}()
+		return
+
+	case "chart_add":
+		msg := tgbotapi.NewMessage(chatID, "📦 *Agregar Helm chart para trackear*\n\nEnvía el nombre del chart o la URL de Artifact Hub:\n\n*Formato 1:* `repo/chart`\n• `bitnami/nginx`\n• `argo/argo-cd`\n\n*Formato 2:* URL completa\n• `https://artifacthub.io/packages/helm/argo/argo-cd`")
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+			),
+		)
+		bot.Send(msg)
+		userState[query.From.ID] = "waiting_track_chart"
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "chart_remove":
+		if len(trackedCharts) == 0 {
+			bot.Request(tgbotapi.NewCallback(query.ID, "❌ No hay charts trackeados"))
+			return
+		}
+		var rows [][]tgbotapi.InlineKeyboardButton
+		for chart := range trackedCharts {
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ "+chart, "chart_del:"+chart),
+			))
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Atrás", "cmd:trackchart"),
+		))
+		edit := tgbotapi.NewEditMessageText(chatID, query.Message.MessageID, "📦 *Remover chart trackeado*\n\nSelecciona el chart a remover:")
+		edit.ParseMode = "Markdown"
+		edit.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
+		bot.Send(edit)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "chart_del":
+		delete(trackedCharts, target)
+		saveConfig()
+		bot.Request(tgbotapi.NewCallback(query.ID, "✅ Chart removido"))
+		go handleTrackChart(chatID)
+		return
+
+	case "chart_check":
+		go func() {
+			bot.Request(tgbotapi.NewCallback(query.ID, "🔍 Verificando..."))
+			checkTrackedCharts(chatID)
+		}()
+		return
+
+	case "chart_url":
+		parts := strings.Split(target, "/")
+		if len(parts) == 2 {
+			url := fmt.Sprintf("https://artifacthub.io/packages/helm/%s/%s", parts[0], parts[1])
+			bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "🔗 "+url))
+		}
+		return
 	}
 
 	if err != nil {
@@ -1890,6 +2051,12 @@ func checkUpdates() {
 	for {
 		if enableAutoCheck && notifyChatID != 0 {
 			runImageUpdateCheck()
+			if len(trackedImages) > 0 {
+				checkTrackedImages(notifyChatID)
+			}
+			if len(trackedCharts) > 0 {
+				checkTrackedCharts(notifyChatID)
+			}
 		}
 		time.Sleep(checkUpdatesInterval)
 	}
@@ -2004,9 +2171,28 @@ func runImageUpdateCheck() int {
 		// Group by project for compose buttons
 		if len(projectSet) > 0 {
 			for project := range projectSet {
-				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+project, "compose_pullup:"+project),
-				))
+				// Check if any container in this update is botainer
+				isBotainerUpdate := false
+				var botainerService string
+				for _, c := range containers {
+					if c.name == "botainer" && c.project == project {
+						isBotainerUpdate = true
+						botainerService = c.name
+						break
+					}
+				}
+				
+				if isBotainerUpdate {
+					// For botainer, only update the service, not the whole project
+					rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+botainerService, "compose_pullup_service:"+project+":"+botainerService),
+					))
+				} else {
+					// For other projects, update the whole project
+					rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+project, "compose_pullup:"+project),
+					))
+				}
 			}
 		}
 
@@ -2135,6 +2321,282 @@ func buildAutoUpdateSelector(chatID int64, messageID int, mode string) {
 	edit.ParseMode = "Markdown"
 	edit.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 	bot.Send(edit)
+}
+
+func handleTrackImage(chatID int64) {
+	tracked := []string{}
+	for img := range trackedImages {
+		tracked = append(tracked, img)
+	}
+
+	text := "📡 *Seguimiento de imágenes remotas*\n\nMonitorea actualizaciones de imágenes que no están en contenedores locales.\n\n"
+	if len(tracked) == 0 {
+		text += "📋 Sin imágenes trackeadas"
+	} else {
+		text += "✅ Trackeadas:\n"
+		for _, img := range tracked {
+			digest := trackedImages[img]
+			shortDigest := digest
+			if len(shortDigest) > 19 {
+				shortDigest = "..." + shortDigest[len(shortDigest)-16:]
+			}
+			text += fmt.Sprintf("• `%s` → `%s`\n", img, shortDigest)
+		}
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar imagen", "track_add:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➖ Remover imagen", "track_remove:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Verificar ahora", "track_check:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+func addTrackedImage(chatID int64, imageTag string) {
+	imageTag = strings.TrimSpace(imageTag)
+	if imageTag == "" {
+		sendMessageWithClose(chatID, "❌ Nombre de imagen vacío")
+		return
+	}
+
+	ctx := context.Background()
+	loadingID := sendLoading(chatID, fmt.Sprintf("📡 Verificando imagen `%s`...", imageTag))
+	
+	reader, err := cli.ImagePull(ctx, imageTag, image.PullOptions{})
+	if err != nil {
+		deleteMsg(chatID, loadingID)
+		sendMessageWithClose(chatID, fmt.Sprintf("❌ Error al verificar imagen:\n```\n%s\n```", err.Error()))
+		return
+	}
+	io.Copy(io.Discard, reader)
+	reader.Close()
+
+	imgInspect, _, err := cli.ImageInspectWithRaw(ctx, imageTag)
+	if err != nil {
+		deleteMsg(chatID, loadingID)
+		sendMessageWithClose(chatID, fmt.Sprintf("❌ Error al inspeccionar imagen:\n```\n%s\n```", err.Error()))
+		return
+	}
+
+	trackedImages[imageTag] = imgInspect.ID
+	saveConfig()
+	
+	deleteMsg(chatID, loadingID)
+	sendMessageWithClose(chatID, fmt.Sprintf("✅ Imagen agregada al seguimiento:\n`%s`\n\nDigest: `%s`", imageTag, imgInspect.ID[:19]))
+	go handleTrackImage(chatID)
+}
+
+func checkTrackedImages(chatID int64) {
+	if len(trackedImages) == 0 {
+		sendMessageWithClose(chatID, "📋 No hay imágenes trackeadas")
+		return
+	}
+
+	ctx := context.Background()
+	found := 0
+
+	for imageTag, oldID := range trackedImages {
+		reader, err := cli.ImagePull(ctx, imageTag, image.PullOptions{})
+		if err != nil {
+			continue
+		}
+		io.Copy(io.Discard, reader)
+		reader.Close()
+
+		imgInspect, _, err := cli.ImageInspectWithRaw(ctx, imageTag)
+		if err != nil || imgInspect.ID == oldID {
+			continue
+		}
+
+		found++
+		trackedImages[imageTag] = imgInspect.ID
+		saveConfig()
+
+		oldVer := oldID
+		newVer := imgInspect.ID
+		if len(oldVer) > 19 {
+			oldVer = oldVer[len(oldVer)-19:]
+		}
+		if len(newVer) > 19 {
+			newVer = newVer[len(newVer)-19:]
+		}
+
+		sizeMB := float64(imgInspect.Size) / 1024 / 1024
+		sizeText := fmt.Sprintf("%.1f MB", sizeMB)
+		if sizeMB > 1024 {
+			sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+		}
+
+		msgText := fmt.Sprintf("🆕 *Nueva versión disponible*\nImagen trackeada: `%s`\nTamaño: `%s`\n\n📦 Versión anterior: `...%s`\n✅ Versión nueva: `...%s`",
+			imageTag, sizeText, oldVer, newVer)
+
+		m := tgbotapi.NewMessage(chatID, msgText)
+		m.ParseMode = "Markdown"
+		m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+			),
+		)
+		bot.Send(m)
+	}
+
+	if found == 0 {
+		sendMessageWithClose(chatID, "✅ Todas las imágenes trackeadas están actualizadas")
+	}
+}
+
+func handleTrackChart(chatID int64) {
+	tracked := []string{}
+	for chart := range trackedCharts {
+		tracked = append(tracked, chart)
+	}
+
+	text := "📦 *Seguimiento de Helm charts*\n\nMonitorea actualizaciones de charts desde Artifact Hub.\n\n"
+	if len(tracked) == 0 {
+		text += "📋 Sin charts trackeados"
+	} else {
+		text += "✅ Trackeados:\n"
+		for _, chart := range tracked {
+			ver := trackedCharts[chart]
+			text += fmt.Sprintf("• `%s` → `%s`\n", chart, ver)
+		}
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar chart", "chart_add:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➖ Remover chart", "chart_remove:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Verificar ahora", "chart_check:_"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+func addTrackedChart(chatID int64, chartName string) {
+	chartName = strings.TrimSpace(chartName)
+	if chartName == "" {
+		sendMessageWithClose(chatID, "❌ Nombre de chart vacío")
+		return
+	}
+
+	// Extract repo/chart from URL if provided
+	if strings.Contains(chartName, "artifacthub.io/packages/helm/") {
+		parts := strings.Split(chartName, "/packages/helm/")
+		if len(parts) == 2 {
+			pathParts := strings.Split(parts[1], "/")
+			if len(pathParts) >= 2 {
+				chartName = pathParts[0] + "/" + pathParts[1]
+			}
+		}
+	}
+
+	loadingID := sendLoading(chatID, fmt.Sprintf("📦 Verificando chart `%s` en Artifact Hub...", chartName))
+	
+	pkg, err := fetchArtifactHubPackage(chartName)
+	if err != nil {
+		deleteMsg(chatID, loadingID)
+		sendMessageWithClose(chatID, fmt.Sprintf("❌ Error al verificar chart:\n```\n%s\n```\n\nFormato: `repo/chart` (ej: `bitnami/nginx`)", err.Error()))
+		return
+	}
+
+	trackedCharts[chartName] = pkg.Version
+	saveConfig()
+	
+	deleteMsg(chatID, loadingID)
+	appVer := ""
+	if pkg.AppVersion != "" {
+		appVer = fmt.Sprintf("\nApp version: `%s`", pkg.AppVersion)
+	}
+	sendMessageWithClose(chatID, fmt.Sprintf("✅ Chart agregado al seguimiento:\n`%s`\n\nChart version: `%s`%s\nRepo: `%s`", chartName, pkg.Version, appVer, pkg.Repository.Name))
+	go handleTrackChart(chatID)
+}
+
+func fetchArtifactHubPackage(chartName string) (*ArtifactHubPackage, error) {
+	parts := strings.Split(chartName, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("formato inválido, usa: repo/chart")
+	}
+
+	url := fmt.Sprintf("https://artifacthub.io/api/v1/packages/helm/%s/%s", parts[0], parts[1])
+	resp, err := exec.Command("wget", "-qO-", url).Output()
+	if err != nil {
+		return nil, fmt.Errorf("chart no encontrado")
+	}
+
+	var pkg ArtifactHubPackage
+	if err := json.Unmarshal(resp, &pkg); err != nil {
+		return nil, fmt.Errorf("error al parsear respuesta")
+	}
+
+	if pkg.Version == "" {
+		return nil, fmt.Errorf("chart no encontrado o sin versión")
+	}
+
+	return &pkg, nil
+}
+
+func checkTrackedCharts(chatID int64) {
+	if len(trackedCharts) == 0 {
+		return
+	}
+
+	found := 0
+	for chartName, oldVersion := range trackedCharts {
+		pkg, err := fetchArtifactHubPackage(chartName)
+		if err != nil || pkg.Version == oldVersion {
+			continue
+		}
+
+		found++
+		trackedCharts[chartName] = pkg.Version
+		saveConfig()
+
+		appVerText := ""
+		if pkg.AppVersion != "" {
+			appVerText = fmt.Sprintf("\n📱 App version: `%s`", pkg.AppVersion)
+		}
+
+		msgText := fmt.Sprintf("🆕 *Nueva versión de Helm chart*\nChart: `%s`\nRepo: `%s`\n\n📦 Versión anterior: `%s`\n✅ Versión nueva: `%s`%s",
+			chartName, pkg.Repository.Name, oldVersion, pkg.Version, appVerText)
+
+		m := tgbotapi.NewMessage(chatID, msgText)
+		m.ParseMode = "Markdown"
+		m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔗 Ver en Artifact Hub", "chart_url:"+chartName),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+			),
+		)
+		bot.Send(m)
+	}
+
+	if found == 0 && chatID != 0 {
+		sendMessageWithClose(chatID, "✅ Todos los charts trackeados están actualizados")
+	}
 }
 
 func handleStartContainer(chatID int64) {
@@ -2811,30 +3273,55 @@ func handleDiagnose(chatID int64) {
 
 	ctx := context.Background()
 	issues := []string{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
-	stoppedContainers, _ := cli.ContainerList(ctx, container.ListOptions{
-		All:     true,
-		Filters: filters.NewArgs(filters.Arg("status", "exited")),
-	})
-	if len(stoppedContainers) > 0 {
-		issues = append(issues, fmt.Sprintf("⚠️ %d contenedores detenidos", len(stoppedContainers)))
-	}
-
-	stats := getStats()
-	for name, stat := range stats {
-		var cpu float64
-		fmt.Sscanf(strings.TrimSuffix(stat.CPU, "%"), "%f", &cpu)
-		if cpu > 80 {
-			issues = append(issues, fmt.Sprintf("🔥 %s usando %s CPU", name, stat.CPU))
+	// Check 1: Stopped containers
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		stoppedContainers, err := cli.ContainerList(ctx, container.ListOptions{
+			All:     true,
+			Filters: filters.NewArgs(filters.Arg("status", "exited")),
+		})
+		if err == nil && len(stoppedContainers) > 0 {
+			mu.Lock()
+			issues = append(issues, fmt.Sprintf("⚠️ %d contenedores detenidos", len(stoppedContainers)))
+			mu.Unlock()
 		}
-	}
+	}()
 
-	danglingImages, _ := cli.ImageList(ctx, image.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("dangling", "true")),
-	})
-	if len(danglingImages) > 0 {
-		issues = append(issues, fmt.Sprintf("🗑️ %d imágenes sin usar (ejecuta /prune)", len(danglingImages)))
-	}
+	// Check 2: High CPU usage
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		stats := getStats()
+		for name, stat := range stats {
+			var cpu float64
+			fmt.Sscanf(strings.TrimSuffix(stat.CPU, "%"), "%f", &cpu)
+			if cpu > 80 {
+				mu.Lock()
+				issues = append(issues, fmt.Sprintf("🔥 %s usando %s CPU", name, stat.CPU))
+				mu.Unlock()
+			}
+		}
+	}()
+
+	// Check 3: Dangling images
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		danglingImages, err := cli.ImageList(ctx, image.ListOptions{
+			Filters: filters.NewArgs(filters.Arg("dangling", "true")),
+		})
+		if err == nil && len(danglingImages) > 0 {
+			mu.Lock()
+			issues = append(issues, fmt.Sprintf("🗑️ %d imágenes sin usar (ejecuta /prune)", len(danglingImages)))
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
 
 	if len(issues) == 0 {
 		sendMessageWithClose(chatID, "✅ *Todo está bien*\nNo se detectaron problemas en el sistema")
@@ -3030,6 +3517,8 @@ func main() {
 		{Command: "checkupdates", Description: getText("menu_checkupdates")},
 		{Command: "updateall", Description: getText("menu_updateall")},
 		{Command: "autoupdate", Description: getText("menu_autoupdate")},
+		{Command: "trackimage", Description: getText("menu_trackimage")},
+		{Command: "trackchart", Description: getText("menu_trackchart")},
 		
 		// Resources
 		{Command: "volumes", Description: getText("menu_volumes")},
@@ -3102,6 +3591,16 @@ func main() {
 				if state == "waiting_search" {
 					delete(userState, userID)
 					go handleSearch(chatID, text)
+					continue
+				}
+				if state == "waiting_track_image" {
+					delete(userState, userID)
+					go addTrackedImage(chatID, text)
+					continue
+				}
+				if state == "waiting_track_chart" {
+					delete(userState, userID)
+					go addTrackedChart(chatID, text)
 					continue
 				}
 			}
@@ -3179,6 +3678,10 @@ func main() {
 				}()
 			case "autoupdate":
 				go handleAutoUpdate(chatID)
+			case "trackimage":
+				go handleTrackImage(chatID)
+			case "trackchart":
+				go handleTrackChart(chatID)
 			case "uptime":
 				go handleUptime(chatID)
 			case "backup":
