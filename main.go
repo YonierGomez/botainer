@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
@@ -2044,7 +2046,28 @@ func runImageUpdateCheck() int {
 		imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imageTag)
 		newID := imgInspect.ID
 
+		// Check for digest-based update (existing logic)
 		if localID == "" || newID == "" || localID == newID {
+			// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
+			if localID != "" && newID != "" && localID == newID {
+				newerTag, err := findNewerTag(imageTag)
+				if err == nil && newerTag != "" {
+					// Found a newer tag version
+					icon := getIcon(containers[0].name)
+					names := make([]string, 0, len(containers))
+					for _, c := range containers {
+						names = append(names, c.name)
+					}
+					
+					msgText := fmt.Sprintf("🔔 %s *Tag más nuevo disponible*\nImagen actual: `%s`\n✨ Disponible: `%s`\nContenedor(es): `%s`\n\n💡 _Considera actualizar al tag más reciente_",
+						icon, imageTag, newerTag, strings.Join(names, "`, `"))
+					
+					m := tgbotapi.NewMessage(notifyChatID, msgText)
+					m.ParseMode = "Markdown"
+					bot.Send(m)
+					found++
+				}
+			}
 			continue
 		}
 		found++
@@ -3614,4 +3637,198 @@ func main() {
 			go handleCallback(update.CallbackQuery)
 		}
 	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Newer Tag Detection
+// ═══════════════════════════════════════════════════════════════════════════
+
+var knownSuffixes = []string{
+	"-alpine3.21", "-alpine3.20", "-alpine3.19", "-alpine3.18", "-alpine",
+	"-slim-bookworm", "-bookworm", "-slim-bullseye", "-bullseye", "-slim",
+	"-perl", "-otel", "-windowsservercore", "-nanoserver",
+}
+
+var skipTags = map[string]bool{
+	"latest": true, "stable": true, "edge": true, "nightly": true,
+	"develop": true, "main": true, "master": true, "lts": true, "mainline": true,
+}
+
+// tagParts splits "1.25.0-alpine" into version="1.25.0", suffix="-alpine"
+func tagParts(tag string) (version, suffix string) {
+	for _, s := range knownSuffixes {
+		if strings.HasSuffix(tag, s) {
+			return strings.TrimSuffix(tag, s), s
+		}
+	}
+	return tag, ""
+}
+
+// parseRegistryAndRepo extracts registry and repo from image name
+// Examples:
+//   nginx → registry-1.docker.io, library/nginx
+//   user/image → registry-1.docker.io, user/image
+//   ghcr.io/user/image → ghcr.io, user/image
+func parseRegistryAndRepo(image string) (registry, repo string) {
+	parts := strings.Split(image, "/")
+	
+	if len(parts) == 1 {
+		// Official image: nginx → library/nginx
+		return "registry-1.docker.io", "library/" + parts[0]
+	}
+	
+	if strings.Contains(parts[0], ".") || parts[0] == "localhost" {
+		// Has registry: ghcr.io/user/image
+		return parts[0], strings.Join(parts[1:], "/")
+	}
+	
+	// User image: user/image
+	return "registry-1.docker.io", image
+}
+
+// fetchRegistryToken gets a Bearer token for registry API access
+func fetchRegistryToken(registry, repo string) (string, error) {
+	var authURL string
+	
+	if registry == "registry-1.docker.io" {
+		authURL = fmt.Sprintf("https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull", repo)
+	} else if registry == "ghcr.io" {
+		authURL = fmt.Sprintf("https://ghcr.io/token?scope=repository:%s:pull", repo)
+	} else {
+		// For other registries, try to discover auth endpoint
+		return "", fmt.Errorf("unsupported registry: %s", registry)
+	}
+	
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(authURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	
+	return result.Token, nil
+}
+
+// listRegistryTags fetches available tags from registry
+func listRegistryTags(registry, repo, token string) ([]string, error) {
+	tagsURL := fmt.Sprintf("https://%s/v2/%s/tags/list", registry, repo)
+	
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", tagsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("registry returned %d", resp.StatusCode)
+	}
+	
+	var result struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	
+	return result.Tags, nil
+}
+
+// findNewerTag checks if a newer version of the same tag variant exists
+// Example: alpine:3.18 → finds alpine:3.20 if available
+func findNewerTag(imageTag string) (string, error) {
+	// Split image:tag
+	parts := strings.Split(imageTag, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid image format")
+	}
+	image, currentTag := parts[0], parts[1]
+	
+	// Skip floating tags
+	if skipTags[currentTag] {
+		return "", nil
+	}
+	
+	// Extract version and suffix
+	currentVer, currentSuffix := tagParts(currentTag)
+	
+	// Try to parse as semver
+	cv, err := semver.NewVersion(currentVer)
+	if err != nil {
+		// Not a semver tag, skip
+		return "", nil
+	}
+	
+	// Get registry and repo
+	registry, repo := parseRegistryAndRepo(image)
+	
+	// Fetch token
+	token, err := fetchRegistryToken(registry, repo)
+	if err != nil {
+		log.Printf("Failed to fetch registry token for %s: %v", image, err)
+		return "", nil // Silent fail
+	}
+	
+	// List tags
+	allTags, err := listRegistryTags(registry, repo, token)
+	if err != nil {
+		log.Printf("Failed to list tags for %s: %v", image, err)
+		return "", nil // Silent fail
+	}
+	
+	// Find best newer tag with same suffix
+	var best *semver.Version
+	var bestTag string
+	
+	for _, tag := range allTags {
+		// Skip floating tags
+		if skipTags[tag] {
+			continue
+		}
+		
+		ver, suffix := tagParts(tag)
+		
+		// Must have same suffix
+		if suffix != currentSuffix {
+			continue
+		}
+		
+		v, err := semver.NewVersion(ver)
+		if err != nil {
+			continue // Not parseable
+		}
+		
+		// Skip pre-releases
+		if v.Prerelease() != "" {
+			continue
+		}
+		
+		// Check if newer
+		if v.GreaterThan(cv) && (best == nil || v.GreaterThan(best)) {
+			best = v
+			bestTag = tag
+		}
+	}
+	
+	if bestTag != "" {
+		return image + ":" + bestTag, nil
+	}
+	
+	return "", nil
 }
