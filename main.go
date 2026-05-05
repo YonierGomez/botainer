@@ -2051,30 +2051,42 @@ func runImageUpdateCheck() int {
 		// Check for digest-based update (existing logic)
 		if localID == "" || newID == "" || localID == newID {
 			// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
+			// Only for semver tags (skip latest, alpine, etc.)
 			if localID != "" && newID != "" && localID == newID {
-				// Run in goroutine to avoid blocking
-				go func(imgTag string, ctrs []containerInfo) {
-					newerTag, err := findNewerTag(imgTag)
-					if err == nil && newerTag != "" {
-						log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
-						
-						icon := getIcon(ctrs[0].name)
-						names := make([]string, 0, len(ctrs))
-						for _, c := range ctrs {
-							names = append(names, c.name)
+				// Quick check: only process if tag looks like semver
+				parts := strings.Split(imageTag, ":")
+				if len(parts) == 2 {
+					tag := parts[1]
+					// Skip floating tags
+					if !skipTags[tag] {
+						// Check if tag starts with a number (likely semver)
+						if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
+							// Run in goroutine to avoid blocking
+							go func(imgTag string, ctrs []containerInfo) {
+								newerTag, err := findNewerTag(imgTag)
+								if err == nil && newerTag != "" {
+									log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
+									
+									icon := getIcon(ctrs[0].name)
+									names := make([]string, 0, len(ctrs))
+									for _, c := range ctrs {
+										names = append(names, c.name)
+									}
+									
+									msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\n\n"+
+										"📦 *Contenedor:* `%s`\n\n"+
+										"🔴 *Actual:* `%s`\n"+
+										"🟢 *Nueva:* `%s`",
+										icon, strings.Join(names, "`, `"), imgTag, newerTag)
+									
+									m := tgbotapi.NewMessage(notifyChatID, msgText)
+									m.ParseMode = "Markdown"
+									bot.Send(m)
+								}
+							}(imageTag, containers)
 						}
-						
-						msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\n\n"+
-							"📦 *Contenedor:* `%s`\n\n"+
-							"🔴 *Actual:* `%s`\n"+
-							"🟢 *Nueva:* `%s`",
-							icon, strings.Join(names, "`, `"), imgTag, newerTag)
-						
-						m := tgbotapi.NewMessage(notifyChatID, msgText)
-						m.ParseMode = "Markdown"
-						bot.Send(m)
 					}
-				}(imageTag, containers)
+				}
 			}
 			continue
 		}
