@@ -1360,17 +1360,6 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	case "compose_pullup":
 		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Actualizando proyecto *%s*...", target))
 
-		// Prevent bot from updating its own compose project
-		ctx := context.Background()
-		botContainer, err := cli.ContainerInspect(ctx, "botainer")
-		if err == nil {
-			botProject := botContainer.Config.Labels["com.docker.compose.project"]
-			if botProject != "" && botProject == target {
-				out = fmt.Sprintf("⚠️ No puedo actualizar el proyecto *%s* porque contiene mi propio contenedor.\n\nPara actualizarme, usa:\n```\ncd /home/ubuntu/botainer\ngit pull\ndocker compose -f /home/ubuntu/chips_all/compose.yaml up -d --build botainer\n```", target)
-				break
-			}
-		}
-
 		workDir := getComposeWorkDir(target)
 		if workDir == "" {
 			out = "❌ No se encontró el directorio del proyecto o archivo compose"
@@ -2172,9 +2161,28 @@ func runImageUpdateCheck() int {
 		// Group by project for compose buttons
 		if len(projectSet) > 0 {
 			for project := range projectSet {
-				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+project, "compose_pullup:"+project),
-				))
+				// Check if any container in this update is botainer
+				isBotainerUpdate := false
+				var botainerService string
+				for _, c := range containers {
+					if c.name == "botainer" && c.project == project {
+						isBotainerUpdate = true
+						botainerService = c.name
+						break
+					}
+				}
+				
+				if isBotainerUpdate {
+					// For botainer, only update the service, not the whole project
+					rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+botainerService, "compose_pullup_service:"+project+":"+botainerService),
+					))
+				} else {
+					// For other projects, update the whole project
+					rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+project, "compose_pullup:"+project),
+					))
+				}
 			}
 		}
 
