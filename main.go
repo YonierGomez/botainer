@@ -2233,7 +2233,21 @@ func runImageUpdateCheck() int {
 }
 
 func runImageUpdateCheckWithFeedback(chatID int64) {
+	// Send initial status message
+	totalContainers := 0
+	ctx := context.Background()
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+	totalContainers = len(containers)
+	
+	statusMsg, _ := bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 Verificando %d contenedores...", totalContainers)))
+	
 	found := runImageUpdateCheck()
+	
+	// Delete status message
+	if statusMsg.MessageID != 0 {
+		bot.Request(tgbotapi.NewDeleteMessage(chatID, statusMsg.MessageID))
+	}
+	
 	if found == 0 {
 		sendMessageWithClose(chatID, "✅ No hay actualizaciones de digest\n\n_Verificando tags más recientes..._")
 	}
@@ -3634,8 +3648,6 @@ func main() {
 				go handleVolumes(chatID)
 			case "networks":
 				go handleNetworks(chatID)
-			case "updateall":
-				go handleUpdateAll(chatID)
 			case "start_container":
 				go handleStartContainer(chatID)
 			case "inspect":
