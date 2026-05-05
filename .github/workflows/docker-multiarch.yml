@@ -82,7 +82,18 @@ jobs:
 
           CHANGELOG=""
           if [[ "$TRIGGER" == "push" ]]; then
-            CHANGELOG="🔧 Code changes in main.go"
+            # Get commit messages since last release
+            if [[ -n "$LATEST" ]]; then
+              COMMITS=$(git log ${LATEST}..HEAD --pretty=format:"• %s" | head -10)
+            else
+              COMMITS=$(git log --pretty=format:"• %s" -5)
+            fi
+            
+            if [[ -n "$COMMITS" ]]; then
+              CHANGELOG="📝 Changes:\n${COMMITS}"
+            else
+              CHANGELOG="🔧 Code changes in main.go"
+            fi
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           elif [[ "v${VERSION}" != "$LATEST" || "$FORCE" == "true" ]]; then
             # Check what changed
