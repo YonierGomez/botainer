@@ -237,10 +237,23 @@ Notifications are activated when you send any message to the bot. You'll receive
 
 The bot automatically checks for new image versions every 6 hours (first check 5 minutes after startup). You can also trigger it manually with `/checkupdates` or from the main menu.
 
+**What it checks:**
+- **Digest updates**: Same tag, new version (e.g., `nginx:latest` updated)
+- **Newer tags**: Semver-based newer versions (e.g., `alpine:3.18` → `alpine:3.23` available)
+
 When an update is detected, it sends a notification with buttons:
 
-- If the container belongs to a Docker Compose project → **🔄 Pull & Up: \<project\>** button that runs `pull` + `up -d`
-- If it's a standalone container → **🔄 Recreate: \<name\>** button
+- **🔄 Actualizar: \<container\>** button that automatically updates the container:
+  - For Compose services: Edits `compose.yaml` and runs `docker compose up -d <service>`
+  - For standalone containers: Recreates container with new image tag
+
+**Smart detection:**
+- Automatically detects when multiple containers use the same image
+- Only checks each unique image once (efficient)
+- Shows update button for each container using that image
+- Supports semver tags (3.18, 2.5, 1.25) and detects newer versions
+- Skips floating tags (latest, alpine, stable) for newer tag detection
+- Parallel checking with 10-second timeout per image (fast and reliable)
 
 ### Remote image & Helm chart tracking
 
