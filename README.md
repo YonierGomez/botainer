@@ -227,6 +227,25 @@ The `/var/run/docker.sock` volume gives access to the host Docker daemon. The `/
 | `/env` | View environment variables of a container |
 | `/history` | Command execution history |
 
+### Advanced Features
+
+| Command | Description |
+|---|---|
+| `/rollback` | Rollback container to previous image version |
+| `/templates` | Save and deploy container configurations |
+| `/maintenance` | Maintenance mode (pause all except critical) |
+| `/alerts` | Configure resource alerts (CPU/RAM thresholds) |
+| `/healthchecks` | Configure HTTP/TCP health checks |
+| `/reports` | Schedule daily/weekly system reports |
+| `/audit` | View command execution audit log |
+| `/scan` | Scan images for vulnerabilities (Trivy) |
+| `/webhooks` | Configure webhooks for external notifications |
+| `/policies` | Auto-update policies (schedule, conditions) |
+| `/networks` | Manage Docker networks |
+| `/registries` | Connect to private registries |
+| `/cleanup` | Intelligent cleanup of orphaned images |
+| `/ports` | Port management and conflict detection |
+
 ---
 
 ## 6. Automatic notifications

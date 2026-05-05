@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -27,7 +28,7 @@ import (
 )
 
 const (
-	botVersion     = "1.2.3"                      // Helm chart tracking with images + persistence fixes
+	botVersion     = "1.3.0"                      // Major feature release: alerts, monitoring, security, networking
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json" // Persistence file
 )
@@ -44,6 +45,25 @@ var (
 	autoUpdateContainers    = make(map[string]bool)
 	trackedImages           = make(map[string]string) // image:tag -> last known digest
 	trackedCharts           = make(map[string]ChartInfo) // repo/chart -> chart info
+	rollbackHistory         = make(map[string][]RollbackEntry) // container -> history (max 5)
+	templates               = make(map[string]ContainerTemplate)
+	maintenanceMode         bool
+	maintenancePaused       []string // containers paused by maintenance mode
+	
+	// Phase 1: Alerts & Monitoring
+	resourceAlerts          = make(map[string]ResourceAlert) // container -> alert config
+	healthChecks            = make(map[string]HealthCheck)   // container -> health check config
+	reportSchedule          = "daily"                         // daily, weekly, or disabled
+	lastReportTime          time.Time
+	
+	// Phase 3: Security & Audit
+	auditLog                []AuditEntry
+	webhooks                = make(map[string]Webhook) // name -> webhook config
+	updatePolicies          = make(map[string]UpdatePolicy) // container -> policy
+	
+	// Phase 4: Networking & Registry
+	registries              = make(map[string]Registry) // name -> registry config
+	criticalContainers      = map[string]bool{"botainer": true} // containers to never pause
 	checkUpdatesInterval    = 6 * time.Hour
 	enableAutoCheck         = true
 	enableStartupNotif      = true
@@ -72,10 +92,96 @@ type ChartInfo struct {
 
 // Config structure for persistence
 type Config struct {
-	AutoUpdateContainers map[string]bool      `json:"autoUpdateContainers"`
-	TrackedImages        map[string]string    `json:"trackedImages"` // image:tag -> digest
-	TrackedCharts        map[string]ChartInfo `json:"trackedCharts"` // repo/chart -> chart info
-	LastCheck            time.Time            `json:"lastCheck"`
+	AutoUpdateContainers map[string]bool              `json:"autoUpdateContainers"`
+	TrackedImages        map[string]string            `json:"trackedImages"` // image:tag -> digest
+	TrackedCharts        map[string]ChartInfo         `json:"trackedCharts"` // repo/chart -> chart info
+	LastCheck            time.Time                    `json:"lastCheck"`
+	RollbackHistory      map[string][]RollbackEntry   `json:"rollbackHistory"`  // container -> history
+	Templates            map[string]ContainerTemplate `json:"templates"`
+	MaintenanceMode      bool                         `json:"maintenanceMode"`
+	MaintenancePaused    []string                     `json:"maintenancePaused"` // containers paused by maintenance
+	
+	// Phase 1
+	ResourceAlerts map[string]ResourceAlert `json:"resourceAlerts"`
+	HealthChecks   map[string]HealthCheck   `json:"healthChecks"`
+	ReportSchedule string                   `json:"reportSchedule"`
+	LastReportTime time.Time                `json:"lastReportTime"`
+	
+	// Phase 3
+	AuditLog       []AuditEntry             `json:"auditLog"`
+	Webhooks       map[string]Webhook       `json:"webhooks"`
+	UpdatePolicies map[string]UpdatePolicy  `json:"updatePolicies"`
+	
+	// Phase 4
+	Registries map[string]Registry `json:"registries"`
+}
+
+// RollbackEntry stores a previous image for a container
+type RollbackEntry struct {
+	Image     string    `json:"image"`
+	ImageID   string    `json:"imageId"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// ContainerTemplate stores a container configuration for reuse
+type ContainerTemplate struct {
+	Name        string            `json:"name"`
+	Image       string            `json:"image"`
+	Cmd         []string          `json:"cmd,omitempty"`
+	Env         []string          `json:"env,omitempty"`
+	Ports       map[string]string `json:"ports,omitempty"` // hostPort -> containerPort
+	Volumes     []string          `json:"volumes,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	NetworkMode string            `json:"networkMode,omitempty"`
+	RestartPolicy string          `json:"restartPolicy,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
+}
+
+// Phase 1: Alerts & Monitoring types
+type ResourceAlert struct {
+	CPUThreshold  float64 `json:"cpuThreshold"`  // percentage
+	RAMThreshold  float64 `json:"ramThreshold"`  // percentage
+	DiskThreshold float64 `json:"diskThreshold"` // percentage
+	Enabled       bool    `json:"enabled"`
+}
+
+type HealthCheck struct {
+	Type     string `json:"type"`     // http, tcp
+	Target   string `json:"target"`   // URL or host:port
+	Interval int    `json:"interval"` // seconds
+	Enabled  bool   `json:"enabled"`
+}
+
+// Phase 3: Security & Audit types
+type AuditEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	UserID    int64     `json:"userId"`
+	Command   string    `json:"command"`
+	Target    string    `json:"target"`
+	Success   bool      `json:"success"`
+}
+
+type Webhook struct {
+	URL     string            `json:"url"`
+	Events  []string          `json:"events"` // container_start, container_stop, update, etc
+	Headers map[string]string `json:"headers,omitempty"`
+	Enabled bool              `json:"enabled"`
+}
+
+type UpdatePolicy struct {
+	Schedule      string `json:"schedule"`      // cron format or "immediate"
+	MinFreeRAM    int    `json:"minFreeRam"`    // MB
+	MinFreeDisk   int    `json:"minFreeDisk"`   // GB
+	AutoApprove   bool   `json:"autoApprove"`   // auto-update without confirmation
+	Enabled       bool   `json:"enabled"`
+}
+
+// Phase 4: Networking & Registry types
+type Registry struct {
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Enabled  bool   `json:"enabled"`
 }
 
 // ArtifactHubPackage represents a package from Artifact Hub API
@@ -118,6 +224,51 @@ func loadConfig() {
 	if trackedCharts == nil {
 		trackedCharts = make(map[string]ChartInfo)
 	}
+	rollbackHistory = cfg.RollbackHistory
+	if rollbackHistory == nil {
+		rollbackHistory = make(map[string][]RollbackEntry)
+	}
+	templates = cfg.Templates
+	if templates == nil {
+		templates = make(map[string]ContainerTemplate)
+	}
+	maintenanceMode = cfg.MaintenanceMode
+	maintenancePaused = cfg.MaintenancePaused
+	
+	// Phase 1
+	resourceAlerts = cfg.ResourceAlerts
+	if resourceAlerts == nil {
+		resourceAlerts = make(map[string]ResourceAlert)
+	}
+	healthChecks = cfg.HealthChecks
+	if healthChecks == nil {
+		healthChecks = make(map[string]HealthCheck)
+	}
+	reportSchedule = cfg.ReportSchedule
+	if reportSchedule == "" {
+		reportSchedule = "daily"
+	}
+	lastReportTime = cfg.LastReportTime
+	
+	// Phase 3
+	auditLog = cfg.AuditLog
+	if auditLog == nil {
+		auditLog = []AuditEntry{}
+	}
+	webhooks = cfg.Webhooks
+	if webhooks == nil {
+		webhooks = make(map[string]Webhook)
+	}
+	updatePolicies = cfg.UpdatePolicies
+	if updatePolicies == nil {
+		updatePolicies = make(map[string]UpdatePolicy)
+	}
+	
+	// Phase 4
+	registries = cfg.Registries
+	if registries == nil {
+		registries = make(map[string]Registry)
+	}
 }
 
 // Save configuration to file
@@ -130,6 +281,18 @@ func saveConfig() {
 		TrackedImages:        trackedImages,
 		TrackedCharts:        trackedCharts,
 		LastCheck:            time.Now(),
+		RollbackHistory:      rollbackHistory,
+		Templates:            templates,
+		MaintenanceMode:      maintenanceMode,
+		MaintenancePaused:    maintenancePaused,
+		ResourceAlerts:       resourceAlerts,
+		HealthChecks:         healthChecks,
+		ReportSchedule:       reportSchedule,
+		LastReportTime:       lastReportTime,
+		AuditLog:             auditLog,
+		Webhooks:             webhooks,
+		UpdatePolicies:       updatePolicies,
+		Registries:           registries,
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -330,6 +493,9 @@ func recreateWithNewImage(name string) error {
 
 	wasRunning := inspect.State.Running
 	imageTag := inspect.Config.Image
+
+	// Save rollback entry before updating
+	saveRollbackEntry(name, imageTag, inspect.Image)
 
 	// Stop container
 	timeout := 10
@@ -1015,6 +1181,32 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			go handleList(chatID)
 		case "diagnose":
 			go handleDiagnose(chatID)
+		case "templates":
+			go handleTemplates(chatID)
+		case "rollback":
+			go handleRollback(chatID)
+		case "maintenance":
+			go handleMaintenance(chatID)
+		case "alerts":
+			go handleAlerts(chatID)
+		case "healthchecks":
+			go handleHealthChecks(chatID)
+		case "reports":
+			go handleReports(chatID)
+		case "audit":
+			go handleAudit(chatID)
+		case "scan":
+			go handleScan(chatID)
+		case "webhooks":
+			go handleWebhooks(chatID)
+		case "policies":
+			go handlePolicies(chatID)
+		case "registries":
+			go handleRegistries(chatID)
+		case "cleanup":
+			go handleCleanup(chatID)
+		case "ports":
+			go handlePorts(chatID)
 		case "inspect_containers":
 			go handleList(chatID)
 		case "inspect_images":
@@ -1733,6 +1925,252 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			url := fmt.Sprintf("https://artifacthub.io/packages/helm/%s/%s", parts[0], parts[1])
 			bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "🔗 "+url))
 		}
+		return
+
+	// ── Phase 2: Rollback ──────────────────────────────────────────────────
+	case "rollback_container":
+		history := rollbackHistory[target]
+		if len(history) == 0 {
+			bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "No hay historial para este contenedor"))
+			return
+		}
+		var rows [][]tgbotapi.InlineKeyboardButton
+		for i, entry := range history {
+			label := fmt.Sprintf("↩️ %s (%s)", entry.Image, entry.Timestamp.Format("02/01 15:04"))
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("rollback_do:%s|%d", target, i)),
+			))
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+		))
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("↩️ *Rollback de %s*\nSelecciona la versión anterior:", target))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "rollback_do":
+		parts := strings.SplitN(target, "|", 2)
+		if len(parts) != 2 {
+			bot.Request(tgbotapi.NewCallback(query.ID, ""))
+			return
+		}
+		containerName := parts[0]
+		idx, _ := strconv.Atoi(parts[1])
+		history := rollbackHistory[containerName]
+		if idx < 0 || idx >= len(history) {
+			bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "Entrada inválida"))
+			return
+		}
+		entry := history[idx]
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("↩️ Haciendo rollback de *%s* a `%s`...", containerName, entry.Image))
+		go func() {
+			if err := doRollback(containerName, entry); err != nil {
+				sendMessageWithClose(chatID, "❌ Error en rollback: "+err.Error())
+			} else {
+				sendMessageWithClose(chatID, fmt.Sprintf("✅ *%s* revertido a `%s`", containerName, entry.Image))
+			}
+		}()
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "rollback_clear":
+		delete(rollbackHistory, target)
+		saveConfig()
+		bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "✅ Historial borrado"))
+		return
+
+	// ── Phase 2: Templates ────────────────────────────────────────────────
+	case "tpl_save":
+		go func() {
+			if err := saveTemplate(target); err != nil {
+				sendMessageWithClose(chatID, "❌ Error guardando plantilla: "+err.Error())
+			} else {
+				sendMessageWithClose(chatID, fmt.Sprintf("✅ Plantilla *%s* guardada", target))
+			}
+		}()
+		bot.Request(tgbotapi.NewCallback(query.ID, "⏳"))
+		return
+
+	case "tpl_save_menu":
+		containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+		var rows [][]tgbotapi.InlineKeyboardButton
+		for i := 0; i < len(containers); i += 2 {
+			name1 := strings.TrimPrefix(containers[i].Names[0], "/")
+			row := []tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardButtonData(getIcon(name1)+" "+name1, "tpl_save:"+name1),
+			}
+			if i+1 < len(containers) {
+				name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
+				row = append(row, tgbotapi.NewInlineKeyboardButtonData(getIcon(name2)+" "+name2, "tpl_save:"+name2))
+			}
+			rows = append(rows, row)
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Atrás", "cmd:templates"),
+		))
+		msg := tgbotapi.NewMessage(chatID, "💾 *Guardar como plantilla*\nSelecciona el contenedor:")
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "tpl_deploy":
+		tpl, ok := templates[target]
+		if !ok {
+			bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "Plantilla no encontrada"))
+			return
+		}
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🚀 Desplegando *%s*...", tpl.Name))
+		go func() {
+			if err := deployTemplate(tpl); err != nil {
+				sendMessageWithClose(chatID, "❌ Error desplegando: "+err.Error())
+			} else {
+				sendMessageWithClose(chatID, fmt.Sprintf("✅ Contenedor *%s* desplegado desde plantilla", tpl.Name))
+			}
+		}()
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "tpl_delete":
+		delete(templates, target)
+		saveConfig()
+		bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "✅ Plantilla eliminada"))
+		go handleTemplates(chatID)
+		return
+
+	case "tpl_info":
+		tpl, ok := templates[target]
+		if !ok {
+			bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "Plantilla no encontrada"))
+			return
+		}
+		text := fmt.Sprintf("📋 *Plantilla: %s*\n\n🖼️ Imagen: `%s`\n", tpl.Name, tpl.Image)
+		if len(tpl.Ports) > 0 {
+			text += "🔌 Puertos:\n"
+			for h, c := range tpl.Ports {
+				text += fmt.Sprintf("  • `%s:%s`\n", h, c)
+			}
+		}
+		if len(tpl.Volumes) > 0 {
+			text += "💾 Volúmenes:\n"
+			for _, v := range tpl.Volumes {
+				text += fmt.Sprintf("  • `%s`\n", v)
+			}
+		}
+		if len(tpl.Env) > 0 {
+			text += fmt.Sprintf("🔧 Env vars: %d\n", len(tpl.Env))
+		}
+		text += fmt.Sprintf("📅 Creada: %s", tpl.CreatedAt.Format("02/01/2006 15:04"))
+		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🚀 Desplegar", "tpl_deploy:"+target),
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ Eliminar", "tpl_delete:"+target),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Atrás", "cmd:templates"),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+			),
+		)
+		bot.Send(msg)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	// ── Phase 2: Maintenance mode ─────────────────────────────────────────
+	case "maintenance_on":
+		editToLoading(chatID, query.Message.MessageID, "🔧 Activando modo mantenimiento...")
+		go func() {
+			count, err := activateMaintenance()
+			if err != nil {
+				sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+			} else {
+				sendMessageWithClose(chatID, fmt.Sprintf("🔧 *Modo mantenimiento activado*\n%d contenedores pausados", count))
+			}
+		}()
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "maintenance_off":
+		editToLoading(chatID, query.Message.MessageID, "✅ Desactivando modo mantenimiento...")
+		go func() {
+			count, err := deactivateMaintenance()
+			if err != nil {
+				sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+			} else {
+				sendMessageWithClose(chatID, fmt.Sprintf("✅ *Modo mantenimiento desactivado*\n%d contenedores reanudados", count))
+			}
+		}()
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "maintenance_status":
+		go handleMaintenance(chatID)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	
+	// Phase 1 callbacks
+	case "report_daily":
+		reportSchedule = "daily"
+		saveConfig()
+		sendMessageWithClose(chatID, "✅ Reportes configurados: Diario")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "report_weekly":
+		reportSchedule = "weekly"
+		saveConfig()
+		sendMessageWithClose(chatID, "✅ Reportes configurados: Semanal")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "report_disabled":
+		reportSchedule = "disabled"
+		saveConfig()
+		sendMessageWithClose(chatID, "✅ Reportes desactivados")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "report_now":
+		// Trigger immediate report
+		lastReportTime = time.Time{}
+		sendMessageWithClose(chatID, "📊 Generando reporte...")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	
+	// Phase 3 callbacks
+	case "audit_export":
+		data, _ := json.MarshalIndent(auditLog, "", "  ")
+		doc := tgbotapi.NewDocument(chatID, tgbotapi.FileBytes{Name: "audit.json", Bytes: data})
+		bot.Send(doc)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	case "audit_clear":
+		auditLog = []AuditEntry{}
+		saveConfig()
+		sendMessageWithClose(chatID, "✅ Registro de auditoría limpiado")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	
+	// Phase 4 callbacks
+	case "cleanup_all":
+		editToLoading(chatID, query.Message.MessageID, "🧹 Limpiando imágenes huérfanas...")
+		go func() {
+			ctx := context.Background()
+			report, err := cli.ImagesPrune(ctx, filters.Args{})
+			if err != nil {
+				sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+				return
+			}
+			sizeMB := float64(report.SpaceReclaimed) / 1024 / 1024
+			sizeText := fmt.Sprintf("%.1f MB", sizeMB)
+			if sizeMB > 1024 {
+				sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+			}
+			sendMessageWithClose(chatID, fmt.Sprintf("✅ Limpieza completada\n\nEspacio liberado: %s", sizeText))
+		}()
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	}
 
@@ -2908,55 +3346,6 @@ func handleExecMenu(chatID int64) {
 	handleGrid(chatID, "⚙️ *Ejecutar comando*\nSelecciona un contenedor:", "exec_menu", false)
 }
 
-func handleSearch(chatID int64, query string) {
-	if query == "" {
-		return
-	}
-
-	ctx := context.Background()
-	query = strings.ToLower(query)
-	results := []string{}
-
-	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
-	for _, c := range containers {
-		name := strings.TrimPrefix(c.Names[0], "/")
-		if strings.Contains(strings.ToLower(name), query) || strings.Contains(strings.ToLower(c.Image), query) {
-			results = append(results, fmt.Sprintf("📦 %s (`%s`)", name, c.Image))
-		}
-	}
-
-	images, _ := cli.ImageList(ctx, image.ListOptions{})
-	for _, img := range images {
-		for _, tag := range img.RepoTags {
-			if strings.Contains(strings.ToLower(tag), query) {
-				results = append(results, fmt.Sprintf("🖼️ %s", tag))
-				break
-			}
-		}
-	}
-
-	volumes, _ := cli.VolumeList(ctx, volume.ListOptions{})
-	for _, vol := range volumes.Volumes {
-		if strings.Contains(strings.ToLower(vol.Name), query) {
-			results = append(results, fmt.Sprintf("💾 %s", vol.Name))
-		}
-	}
-
-	if len(results) == 0 {
-		sendMessageWithClose(chatID, fmt.Sprintf("No se encontraron resultados para: *%s*", query))
-	} else {
-		text := fmt.Sprintf("🔍 *Resultados para: %s*\n\n%s", query, strings.Join(results, "\n"))
-		msg := tgbotapi.NewMessage(chatID, text)
-		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-			),
-		)
-		bot.Send(msg)
-	}
-}
-
 func handlePauseMenu(chatID int64) {
 	handleGrid(chatID, "⏸️ *Pausar contenedor*\nSelecciona un contenedor:", "pause", false)
 }
@@ -3602,6 +3991,24 @@ func main() {
 		{Command: "history", Description: getText("menu_history")},
 		{Command: "backup", Description: getText("menu_backup")},
 		{Command: "version", Description: getText("menu_version")},
+		// Phase 2
+		{Command: "rollback", Description: "↩️ Rollback a imagen anterior"},
+		{Command: "templates", Description: "📋 Gestionar plantillas de contenedores"},
+		{Command: "maintenance", Description: "🔧 Modo mantenimiento"},
+		// Phase 1
+		{Command: "alerts", Description: "⚠️ Alertas de recursos"},
+		{Command: "healthchecks", Description: "🏥 Health checks"},
+		{Command: "reports", Description: "📊 Reportes programados"},
+		// Phase 3
+		{Command: "audit", Description: "📋 Registro de auditoría"},
+		{Command: "scan", Description: "🔒 Escanear vulnerabilidades"},
+		{Command: "webhooks", Description: "🔗 Gestionar webhooks"},
+		{Command: "policies", Description: "⚙️ Políticas de actualización"},
+		// Phase 4
+		{Command: "networks", Description: "🌐 Gestionar redes"},
+		{Command: "registries", Description: "📦 Registries privados"},
+		{Command: "cleanup", Description: "🧹 Limpieza inteligente"},
+		{Command: "ports", Description: "🔌 Gestión de puertos"},
 	}
 
 	cmdConfig := tgbotapi.NewSetMyCommands(commands...)
@@ -3611,8 +4018,9 @@ func main() {
 
 	go monitorEvents()
 	go checkUpdates()
-	go monitorResourceAlerts()
-	go scheduledReports()
+	go monitorResources()
+	go runHealthChecks()
+	go sendScheduledReports()
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -3713,13 +4121,6 @@ func main() {
 				go handlePrune(chatID)
 			case "exec":
 				go handleExecMenu(chatID)
-			case "search":
-				if update.Message.CommandArguments() == "" {
-					userState[userID] = "waiting_search"
-					sendMessageWithClose(chatID, "🔍 ¿Qué deseas buscar?")
-				} else {
-					go handleSearch(chatID, update.Message.CommandArguments())
-				}
 			case "pause":
 				go handlePauseMenu(chatID)
 			case "unpause":
@@ -3753,11 +4154,478 @@ func main() {
 				go handleUptime(chatID)
 			case "backup":
 				go handleBackupMenu(chatID)
+			// Phase 2
+			case "rollback":
+				go handleRollback(chatID)
+			case "templates":
+				go handleTemplates(chatID)
+			case "maintenance":
+				go handleMaintenance(chatID)
+			case "search":
+				if update.Message.CommandArguments() == "" {
+					userState[userID] = "waiting_search"
+					sendMessageWithClose(chatID, "🔍 ¿Qué deseas buscar?\n\n_Filtros disponibles:_\n• `label:key=value` — por etiqueta\n• `env:VAR` — por variable de entorno\n• `status:running` — por estado\n• Texto libre — nombre o imagen")
+				} else {
+					go handleSearch(chatID, update.Message.CommandArguments())
+				}
 			}
 		} else if update.CallbackQuery != nil {
 			go handleCallback(update.CallbackQuery)
 		}
 	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2: Rollback System
+// ═══════════════════════════════════════════════════════════════════════════
+
+func saveRollbackEntry(containerName, imageTag, imageID string) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	entry := RollbackEntry{Image: imageTag, ImageID: imageID, Timestamp: time.Now()}
+	history := rollbackHistory[containerName]
+	// Prepend (newest first), keep max 5
+	history = append([]RollbackEntry{entry}, history...)
+	if len(history) > 5 {
+		history = history[:5]
+	}
+	rollbackHistory[containerName] = history
+}
+
+func doRollback(containerName string, entry RollbackEntry) error {
+	ctx := context.Background()
+	inspect, err := cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("inspect failed: %w", err)
+	}
+
+	// Pull the old image
+	reader, err := cli.ImagePull(ctx, entry.Image, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull failed: %w", err)
+	}
+	io.Copy(io.Discard, reader)
+	reader.Close()
+
+	wasRunning := inspect.State.Running
+	timeout := 10
+	cli.ContainerStop(ctx, containerName, container.StopOptions{Timeout: &timeout})
+
+	oldName := containerName + "_rollback_old"
+	cli.ContainerRemove(ctx, oldName, container.RemoveOptions{Force: true})
+	if err := cli.ContainerRename(ctx, containerName, oldName); err != nil {
+		if wasRunning {
+			cli.ContainerStart(ctx, containerName, container.StartOptions{})
+		}
+		return fmt.Errorf("rename failed: %w", err)
+	}
+
+	cfg := inspect.Config
+	cfg.Image = entry.Image
+	resp, err := cli.ContainerCreate(ctx, cfg, inspect.HostConfig, &network.NetworkingConfig{
+		EndpointsConfig: inspect.NetworkSettings.Networks,
+	}, nil, containerName)
+	if err != nil {
+		cli.ContainerRename(ctx, oldName, containerName)
+		if wasRunning {
+			cli.ContainerStart(ctx, containerName, container.StartOptions{})
+		}
+		return fmt.Errorf("create failed: %w", err)
+	}
+
+	if wasRunning {
+		if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+			cli.ContainerRemove(ctx, containerName, container.RemoveOptions{Force: true})
+			cli.ContainerRename(ctx, oldName, containerName)
+			cli.ContainerStart(ctx, containerName, container.StartOptions{})
+			return fmt.Errorf("start failed: %w", err)
+		}
+	}
+	cli.ContainerRemove(ctx, oldName, container.RemoveOptions{Force: true})
+	return nil
+}
+
+func handleRollback(chatID int64) {
+	ctx := context.Background()
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+		return
+	}
+
+	// Only show containers that have rollback history
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		history := rollbackHistory[name]
+		if len(history) == 0 {
+			continue
+		}
+		icon := getIcon(name)
+		label := fmt.Sprintf("%s %s (%d versiones)", icon, name, len(history))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, "rollback_container:"+name),
+			tgbotapi.NewInlineKeyboardButtonData("🗑️", "rollback_clear:"+name),
+		))
+	}
+
+	if len(rows) == 0 {
+		sendMessageWithClose(chatID, "↩️ *Rollback*\n\nNo hay historial de versiones.\nEl historial se guarda automáticamente cuando se actualiza un contenedor.")
+		return
+	}
+
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+	msg := tgbotapi.NewMessage(chatID, "↩️ *Rollback de contenedores*\nSelecciona un contenedor para revertir:")
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	bot.Send(msg)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2: Container Templates
+// ═══════════════════════════════════════════════════════════════════════════
+
+func saveTemplate(containerName string) error {
+	ctx := context.Background()
+	inspect, err := cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("inspect failed: %w", err)
+	}
+
+	tpl := ContainerTemplate{
+		Name:        containerName,
+		Image:       inspect.Config.Image,
+		Cmd:         inspect.Config.Cmd,
+		Env:         inspect.Config.Env,
+		Labels:      inspect.Config.Labels,
+		NetworkMode: string(inspect.HostConfig.NetworkMode),
+		CreatedAt:   time.Now(),
+	}
+
+	// Extract port bindings
+	if inspect.HostConfig.PortBindings != nil {
+		tpl.Ports = make(map[string]string)
+		for containerPort, bindings := range inspect.HostConfig.PortBindings {
+			for _, b := range bindings {
+				tpl.Ports[b.HostPort] = string(containerPort)
+			}
+		}
+	}
+
+	// Extract volume bindings
+	for _, bind := range inspect.HostConfig.Binds {
+		tpl.Volumes = append(tpl.Volumes, bind)
+	}
+
+	if inspect.HostConfig.RestartPolicy.Name != "" {
+		tpl.RestartPolicy = string(inspect.HostConfig.RestartPolicy.Name)
+	}
+
+	configMutex.Lock()
+	templates[containerName] = tpl
+	configMutex.Unlock()
+	saveConfig()
+	return nil
+}
+
+func deployTemplate(tpl ContainerTemplate) error {
+	ctx := context.Background()
+
+	// Pull image
+	reader, err := cli.ImagePull(ctx, tpl.Image, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull failed: %w", err)
+	}
+	io.Copy(io.Discard, reader)
+	reader.Close()
+
+	cfg := &container.Config{
+		Image:  tpl.Image,
+		Cmd:    tpl.Cmd,
+		Env:    tpl.Env,
+		Labels: tpl.Labels,
+	}
+
+	hostCfg := &container.HostConfig{
+		NetworkMode: container.NetworkMode(tpl.NetworkMode),
+		Binds:       tpl.Volumes,
+	}
+	if tpl.RestartPolicy != "" {
+		hostCfg.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(tpl.RestartPolicy)}
+	}
+
+	// Remove existing container with same name if stopped
+	existing, err := cli.ContainerInspect(ctx, tpl.Name)
+	if err == nil && !existing.State.Running {
+		cli.ContainerRemove(ctx, tpl.Name, container.RemoveOptions{})
+	}
+
+	resp, err := cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, tpl.Name)
+	if err != nil {
+		return fmt.Errorf("create failed: %w", err)
+	}
+	return cli.ContainerStart(ctx, resp.ID, container.StartOptions{})
+}
+
+func handleTemplates(chatID int64) {
+	ctx := context.Background()
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+
+	text := "📋 *Plantillas de contenedores*\n\n"
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	if len(templates) > 0 {
+		text += fmt.Sprintf("Guardadas: %d\n\n", len(templates))
+		for name := range templates {
+			icon := getIcon(name)
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(icon+" "+name, "tpl_info:"+name),
+			))
+		}
+	} else {
+		text += "No hay plantillas guardadas.\n"
+	}
+
+	// Add "save from container" section
+	if len(containers) > 0 {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💾 Guardar contenedor como plantilla", "tpl_save_menu:_"),
+		))
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	bot.Send(msg)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2: Advanced Search
+// ═══════════════════════════════════════════════════════════════════════════
+
+func handleSearch(chatID int64, query string) {
+	if query == "" {
+		return
+	}
+
+	ctx := context.Background()
+	queryLower := strings.ToLower(strings.TrimSpace(query))
+	results := []string{}
+
+	// Parse filter prefix
+	filterType := ""
+	filterValue := ""
+	if strings.HasPrefix(queryLower, "label:") {
+		filterType = "label"
+		filterValue = strings.TrimPrefix(queryLower, "label:")
+	} else if strings.HasPrefix(queryLower, "env:") {
+		filterType = "env"
+		filterValue = strings.TrimPrefix(queryLower, "env:")
+	} else if strings.HasPrefix(queryLower, "status:") {
+		filterType = "status"
+		filterValue = strings.TrimPrefix(queryLower, "status:")
+	}
+
+	var listOpts container.ListOptions
+	if filterType == "status" {
+		listOpts = container.ListOptions{
+			All:     true,
+			Filters: filters.NewArgs(filters.Arg("status", filterValue)),
+		}
+	} else {
+		listOpts = container.ListOptions{All: true}
+	}
+
+	containers, _ := cli.ContainerList(ctx, listOpts)
+
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		matched := false
+
+		switch filterType {
+		case "label":
+			// Search by label key=value or just key
+			inspect, _ := cli.ContainerInspect(ctx, c.ID)
+			for k, v := range inspect.Config.Labels {
+				labelStr := strings.ToLower(k + "=" + v)
+				if strings.Contains(labelStr, filterValue) {
+					matched = true
+					break
+				}
+			}
+		case "env":
+			inspect, _ := cli.ContainerInspect(ctx, c.ID)
+			for _, e := range inspect.Config.Env {
+				if strings.Contains(strings.ToLower(e), filterValue) {
+					matched = true
+					break
+				}
+			}
+		case "status":
+			matched = true // already filtered by Docker
+		default:
+			// Free text: match name or image
+			if strings.Contains(strings.ToLower(name), queryLower) ||
+				strings.Contains(strings.ToLower(c.Image), queryLower) {
+				matched = true
+			}
+		}
+
+		if matched {
+			statusIcon := "🔴"
+			if c.State == "running" {
+				statusIcon = "🟢"
+			} else if c.State == "paused" {
+				statusIcon = "🟡"
+			}
+			results = append(results, fmt.Sprintf("%s %s *%s*\n   └ `%s`", statusIcon, getIcon(name), name, c.Image))
+		}
+	}
+
+	// Also search images (only for free text)
+	if filterType == "" {
+		images, _ := cli.ImageList(ctx, image.ListOptions{})
+		for _, img := range images {
+			for _, tag := range img.RepoTags {
+				if strings.Contains(strings.ToLower(tag), queryLower) {
+					results = append(results, fmt.Sprintf("🖼️ `%s`", tag))
+					break
+				}
+			}
+		}
+
+		vols, _ := cli.VolumeList(ctx, volume.ListOptions{})
+		for _, vol := range vols.Volumes {
+			if strings.Contains(strings.ToLower(vol.Name), queryLower) {
+				results = append(results, fmt.Sprintf("💾 `%s`", vol.Name))
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		sendMessageWithClose(chatID, fmt.Sprintf("🔍 Sin resultados para: `%s`", query))
+		return
+	}
+
+	text := fmt.Sprintf("🔍 *Resultados para:* `%s`\n_%d encontrado(s)_\n\n%s", query, len(results), strings.Join(results, "\n\n"))
+	if len(text) > 3800 {
+		text = text[:3800] + "\n...(truncado)"
+	}
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	bot.Send(msg)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2: Maintenance Mode
+// ═══════════════════════════════════════════════════════════════════════════
+
+// criticalContainers are never paused during maintenance
+func activateMaintenance() (int, error) {
+	ctx := context.Background()
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("status", "running")),
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	paused := []string{}
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		if criticalContainers[name] {
+			continue
+		}
+		if err := cli.ContainerPause(ctx, c.ID); err == nil {
+			paused = append(paused, name)
+		}
+	}
+
+	configMutex.Lock()
+	maintenanceMode = true
+	maintenancePaused = paused
+	configMutex.Unlock()
+	saveConfig()
+	return len(paused), nil
+}
+
+func deactivateMaintenance() (int, error) {
+	ctx := context.Background()
+	count := 0
+	for _, name := range maintenancePaused {
+		if err := cli.ContainerUnpause(ctx, name); err == nil {
+			count++
+		}
+	}
+
+	configMutex.Lock()
+	maintenanceMode = false
+	maintenancePaused = nil
+	configMutex.Unlock()
+	saveConfig()
+	return count, nil
+}
+
+func handleMaintenance(chatID int64) {
+	ctx := context.Background()
+	running, _ := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("status", "running")),
+	})
+	paused, _ := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("status", "paused")),
+	})
+
+	statusIcon := "🟢"
+	statusText := "Inactivo"
+	if maintenanceMode {
+		statusIcon = "🔧"
+		statusText = "ACTIVO"
+	}
+
+	text := fmt.Sprintf("🔧 *Modo Mantenimiento*\n\nEstado: %s *%s*\n\n🟢 Corriendo: %d\n⏸️ Pausados: %d",
+		statusIcon, statusText, len(running), len(paused))
+
+	if maintenanceMode && len(maintenancePaused) > 0 {
+		text += fmt.Sprintf("\n\n_Pausados por mantenimiento:_\n`%s`", strings.Join(maintenancePaused, "`, `"))
+	}
+
+	var keyboard tgbotapi.InlineKeyboardMarkup
+	if maintenanceMode {
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Desactivar mantenimiento", "maintenance_off:_"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar estado", "maintenance_status:_"),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+			),
+		)
+	} else {
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔧 Activar mantenimiento", "maintenance_on:_"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar estado", "maintenance_status:_"),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+			),
+		)
+	}
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3984,4 +4852,674 @@ func findNewerTag(imageTag string) (string, error) {
 	}
 	
 	return "", nil
+}
+// ============================================================================
+// PHASE 1: ALERTS & MONITORING
+// ============================================================================
+
+// Monitor resources and send alerts
+func monitorResources() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		if notifyChatID == 0 {
+			continue
+		}
+		
+		ctx := context.Background()
+		containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+		
+		for _, c := range containers {
+			name := strings.TrimPrefix(c.Names[0], "/")
+			alert, exists := resourceAlerts[name]
+			if !exists || !alert.Enabled {
+				continue
+			}
+			
+			stats, err := cli.ContainerStats(ctx, c.ID, false)
+			if err != nil {
+				continue
+			}
+			defer stats.Body.Close()
+			
+			var v container.StatsResponse
+			json.NewDecoder(stats.Body).Decode(&v)
+			
+			// CPU usage
+			cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+			systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+			cpuPercent := (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+			
+			// RAM usage
+			ramPercent := float64(v.MemoryStats.Usage) / float64(v.MemoryStats.Limit) * 100.0
+			
+			if cpuPercent > alert.CPUThreshold {
+				msg := fmt.Sprintf("⚠️ *Alerta de CPU*\n\n"+
+					"Contenedor: `%s`\n"+
+					"CPU: `%.1f%%` (umbral: %.0f%%)", name, cpuPercent, alert.CPUThreshold)
+				bot.Send(tgbotapi.NewMessage(notifyChatID, msg))
+			}
+			
+			if ramPercent > alert.RAMThreshold {
+				msg := fmt.Sprintf("⚠️ *Alerta de RAM*\n\n"+
+					"Contenedor: `%s`\n"+
+					"RAM: `%.1f%%` (umbral: %.0f%%)", name, ramPercent, alert.RAMThreshold)
+				m := tgbotapi.NewMessage(notifyChatID, msg)
+				m.ParseMode = "Markdown"
+				bot.Send(m)
+			}
+		}
+	}
+}
+
+// Run health checks
+func runHealthChecks() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		if notifyChatID == 0 {
+			continue
+		}
+		
+		for name, check := range healthChecks {
+			if !check.Enabled {
+				continue
+			}
+			
+			var healthy bool
+			if check.Type == "http" {
+				resp, err := http.Get(check.Target)
+				healthy = err == nil && resp.StatusCode == 200
+				if resp != nil {
+					resp.Body.Close()
+				}
+			} else if check.Type == "tcp" {
+				conn, err := net.DialTimeout("tcp", check.Target, 5*time.Second)
+				healthy = err == nil
+				if conn != nil {
+					conn.Close()
+				}
+			}
+			
+			if !healthy {
+				msg := fmt.Sprintf("❌ *Health Check Failed*\n\n"+
+					"Container: `%s`\n"+
+					"Type: `%s`\n"+
+					"Target: `%s`", name, check.Type, check.Target)
+				m := tgbotapi.NewMessage(notifyChatID, msg)
+				m.ParseMode = "Markdown"
+				bot.Send(m)
+			}
+		}
+	}
+}
+
+// Send scheduled reports
+func sendScheduledReports() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		if notifyChatID == 0 || reportSchedule == "disabled" {
+			continue
+		}
+		
+		now := time.Now()
+		shouldSend := false
+		
+		if reportSchedule == "daily" && now.Sub(lastReportTime) >= 24*time.Hour {
+			shouldSend = true
+		} else if reportSchedule == "weekly" && now.Sub(lastReportTime) >= 7*24*time.Hour {
+			shouldSend = true
+		}
+		
+		if !shouldSend {
+			continue
+		}
+		
+		ctx := context.Background()
+		containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+		
+		running := 0
+		stopped := 0
+		paused := 0
+		
+		for _, c := range containers {
+			switch c.State {
+			case "running":
+				running++
+			case "exited":
+				stopped++
+			case "paused":
+				paused++
+			}
+		}
+		
+		msg := fmt.Sprintf("📊 *Reporte del Sistema*\n\n"+
+			"🟢 Corriendo: %d\n"+
+			"🔴 Detenidos: %d\n"+
+			"🟡 Pausados: %d\n"+
+			"📦 Total: %d\n\n"+
+			"Fecha: %s", running, stopped, paused, len(containers), now.Format("2006-01-02 15:04"))
+		
+		m := tgbotapi.NewMessage(notifyChatID, msg)
+		m.ParseMode = "Markdown"
+		bot.Send(m)
+		
+		lastReportTime = now
+		saveConfig()
+	}
+}
+
+// Handle /alerts command
+func handleAlerts(chatID int64) {
+	ctx := context.Background()
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	
+	text := "⚠️ *Alertas de Recursos*\n\nConfigura umbrales de CPU/RAM para recibir notificaciones.\n\n"
+	
+	if len(resourceAlerts) == 0 {
+		text += "📋 Sin alertas configuradas"
+	} else {
+		text += "✅ Alertas activas:\n"
+		for name, alert := range resourceAlerts {
+			status := "❌"
+			if alert.Enabled {
+				status = "✅"
+			}
+			text += fmt.Sprintf("%s `%s` - CPU: %.0f%%, RAM: %.0f%%\n", status, name, alert.CPUThreshold, alert.RAMThreshold)
+		}
+	}
+	
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for i := 0; i < len(containers); i += 2 {
+		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
+		row := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name1, "alert_config:"+name1),
+		}
+		if i+1 < len(containers) {
+			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name2, "alert_config:"+name2))
+		}
+		rows = append(rows, row)
+	}
+	
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	bot.Send(msg)
+}
+
+// Handle /healthchecks command
+func handleHealthChecks(chatID int64) {
+	ctx := context.Background()
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	
+	text := "🏥 *Health Checks*\n\nConfigura verificaciones HTTP/TCP para tus contenedores.\n\n"
+	
+	if len(healthChecks) == 0 {
+		text += "📋 Sin health checks configurados"
+	} else {
+		text += "✅ Health checks activos:\n"
+		for name, check := range healthChecks {
+			status := "❌"
+			if check.Enabled {
+				status = "✅"
+			}
+			text += fmt.Sprintf("%s `%s` - %s: %s\n", status, name, check.Type, check.Target)
+		}
+	}
+	
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for i := 0; i < len(containers); i += 2 {
+		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
+		row := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name1, "health_config:"+name1),
+		}
+		if i+1 < len(containers) {
+			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name2, "health_config:"+name2))
+		}
+		rows = append(rows, row)
+	}
+	
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	bot.Send(msg)
+}
+
+// Handle /reports command
+func handleReports(chatID int64) {
+	text := fmt.Sprintf("📊 *Reportes Programados*\n\n"+
+		"Configuración actual: `%s`\n\n"+
+		"Selecciona la frecuencia de reportes:", reportSchedule)
+	
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📅 Diario", "report_daily"),
+			tgbotapi.NewInlineKeyboardButtonData("📆 Semanal", "report_weekly"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔕 Desactivar", "report_disabled"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📤 Enviar ahora", "report_now"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+// ============================================================================
+// PHASE 3: SECURITY & AUDIT
+// ============================================================================
+
+// Add audit entry
+func addAudit(userID int64, command, target string, success bool) {
+	entry := AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    userID,
+		Command:   command,
+		Target:    target,
+		Success:   success,
+	}
+	auditLog = append(auditLog, entry)
+	
+	// Keep only last 1000 entries
+	if len(auditLog) > 1000 {
+		auditLog = auditLog[len(auditLog)-1000:]
+	}
+	
+	saveConfig()
+}
+
+// Handle /audit command
+func handleAudit(chatID int64) {
+	text := "📋 *Registro de Auditoría*\n\n"
+	
+	if len(auditLog) == 0 {
+		text += "Sin entradas de auditoría"
+	} else {
+		// Show last 10 entries
+		start := len(auditLog) - 10
+		if start < 0 {
+			start = 0
+		}
+		
+		for i := len(auditLog) - 1; i >= start; i-- {
+			entry := auditLog[i]
+			status := "✅"
+			if !entry.Success {
+				status = "❌"
+			}
+			text += fmt.Sprintf("%s `%s` - %s (%s)\n  %s\n", 
+				status, entry.Command, entry.Target, entry.Timestamp.Format("15:04"), entry.Timestamp.Format("2006-01-02"))
+		}
+	}
+	
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📥 Exportar", "audit_export"),
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Limpiar", "audit_clear"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+// Scan image with Trivy
+func scanImage(imageName string) (string, error) {
+	cmd := exec.Command("trivy", "image", "--severity", "HIGH,CRITICAL", "--format", "json", imageName)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	
+	var result struct {
+		Results []struct {
+			Vulnerabilities []struct {
+				VulnerabilityID string `json:"VulnerabilityID"`
+				Severity        string `json:"Severity"`
+				Title           string `json:"Title"`
+			} `json:"Vulnerabilities"`
+		} `json:"Results"`
+	}
+	
+	if err := json.Unmarshal(output, &result); err != nil {
+		return "", err
+	}
+	
+	critical := 0
+	high := 0
+	
+	for _, r := range result.Results {
+		for _, v := range r.Vulnerabilities {
+			if v.Severity == "CRITICAL" {
+				critical++
+			} else if v.Severity == "HIGH" {
+				high++
+			}
+		}
+	}
+	
+	return fmt.Sprintf("🔒 *Escaneo de Seguridad*\n\n"+
+		"Imagen: `%s`\n\n"+
+		"🔴 Críticas: %d\n"+
+		"🟠 Altas: %d", imageName, critical, high), nil
+}
+
+// Handle /scan command
+func handleScan(chatID int64) {
+	ctx := context.Background()
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	
+	text := "🔒 *Escaneo de Vulnerabilidades*\n\nSelecciona un contenedor para escanear su imagen:"
+	
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for i := 0; i < len(containers); i += 2 {
+		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
+		row := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("🔍 "+name1, "scan:"+name1),
+		}
+		if i+1 < len(containers) {
+			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData("🔍 "+name2, "scan:"+name2))
+		}
+		rows = append(rows, row)
+	}
+	
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	bot.Send(msg)
+}
+
+// Handle /webhooks command
+func handleWebhooks(chatID int64) {
+	text := "🔗 *Webhooks*\n\nConfigura webhooks para recibir notificaciones en servicios externos.\n\n"
+	
+	if len(webhooks) == 0 {
+		text += "📋 Sin webhooks configurados"
+	} else {
+		text += "✅ Webhooks activos:\n"
+		for name, wh := range webhooks {
+			status := "❌"
+			if wh.Enabled {
+				status = "✅"
+			}
+			text += fmt.Sprintf("%s `%s` - %d eventos\n", status, name, len(wh.Events))
+		}
+	}
+	
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar", "webhook_add"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+// Send webhook notification
+func sendWebhook(event, target string) {
+	for _, wh := range webhooks {
+		if !wh.Enabled {
+			continue
+		}
+		
+		found := false
+		for _, e := range wh.Events {
+			if e == event || e == "all" {
+				found = true
+				break
+			}
+		}
+		
+		if !found {
+			continue
+		}
+		
+		payload := map[string]string{
+			"event":     event,
+			"target":    target,
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
+		
+		data, _ := json.Marshal(payload)
+		req, _ := http.NewRequest("POST", wh.URL, strings.NewReader(string(data)))
+		req.Header.Set("Content-Type", "application/json")
+		
+		for k, v := range wh.Headers {
+			req.Header.Set(k, v)
+		}
+		
+		client := &http.Client{Timeout: 10 * time.Second}
+		client.Do(req)
+	}
+}
+
+// Handle /policies command
+func handlePolicies(chatID int64) {
+	ctx := context.Background()
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	
+	text := "⚙️ *Políticas de Actualización*\n\nConfigura cuándo y cómo actualizar contenedores.\n\n"
+	
+	if len(updatePolicies) == 0 {
+		text += "📋 Sin políticas configuradas"
+	} else {
+		text += "✅ Políticas activas:\n"
+		for name, policy := range updatePolicies {
+			status := "❌"
+			if policy.Enabled {
+				status = "✅"
+			}
+			auto := ""
+			if policy.AutoApprove {
+				auto = " (auto)"
+			}
+			text += fmt.Sprintf("%s `%s`%s\n", status, name, auto)
+		}
+	}
+	
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for i := 0; i < len(containers); i += 2 {
+		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
+		row := []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name1, "policy_config:"+name1),
+		}
+		if i+1 < len(containers) {
+			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
+			row = append(row, tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name2, "policy_config:"+name2))
+		}
+		rows = append(rows, row)
+	}
+	
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	bot.Send(msg)
+}
+
+// ============================================================================
+// PHASE 4: NETWORKING & REGISTRY
+// ============================================================================
+
+
+// ============================================================================
+// PHASE 4: NETWORKING & REGISTRY HANDLERS
+// ============================================================================
+
+// Handle /registries command
+func handleRegistries(chatID int64) {
+	text := "📦 *Registries Privados*\n\nGestiona conexiones a registries de imágenes.\n\n"
+	
+	if len(registries) == 0 {
+		text += "📋 Sin registries configurados"
+	} else {
+		text += "✅ Registries configurados:\n"
+		for name, reg := range registries {
+			status := "❌"
+			if reg.Enabled {
+				status = "✅"
+			}
+			text += fmt.Sprintf("%s `%s` - %s\n", status, name, reg.URL)
+		}
+	}
+	
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar", "registry_add"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+// Handle /cleanup command
+func handleCleanup(chatID int64) {
+	ctx := context.Background()
+	
+	// Get all images
+	images, _ := cli.ImageList(ctx, image.ListOptions{All: true})
+	
+	// Get all containers
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+	
+	// Find used images
+	usedImages := make(map[string]bool)
+	for _, c := range containers {
+		usedImages[c.ImageID] = true
+	}
+	
+	// Find orphaned images
+	orphaned := []string{}
+	var orphanedSize int64
+	
+	for _, img := range images {
+		if !usedImages[img.ID] && len(img.RepoTags) > 0 {
+			orphaned = append(orphaned, img.RepoTags[0])
+			orphanedSize += img.Size
+		}
+	}
+	
+	sizeMB := float64(orphanedSize) / 1024 / 1024
+	sizeText := fmt.Sprintf("%.1f MB", sizeMB)
+	if sizeMB > 1024 {
+		sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+	}
+	
+	text := fmt.Sprintf("🧹 *Limpieza Inteligente*\n\n"+
+		"Imágenes huérfanas: %d\n"+
+		"Espacio a liberar: %s\n\n", len(orphaned), sizeText)
+	
+	if len(orphaned) > 0 {
+		text += "Imágenes detectadas:\n"
+		for i, img := range orphaned {
+			if i >= 10 {
+				text += fmt.Sprintf("... y %d más\n", len(orphaned)-10)
+				break
+			}
+			text += fmt.Sprintf("• `%s`\n", img)
+		}
+	}
+	
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Limpiar todo", "cleanup_all"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Ver detalles", "cleanup_details"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
+}
+
+// Handle /ports command
+func handlePorts(chatID int64) {
+	ctx := context.Background()
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	
+	text := "🔌 *Gestión de Puertos*\n\n"
+	
+	usedPorts := make(map[string]string)
+	
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		for _, port := range c.Ports {
+			if port.PublicPort > 0 {
+				portStr := fmt.Sprintf("%d", port.PublicPort)
+				usedPorts[portStr] = name
+				text += fmt.Sprintf("• `%d` → `%s` (%s)\n", port.PublicPort, name, port.Type)
+			}
+		}
+	}
+	
+	if len(usedPorts) == 0 {
+		text += "Sin puertos expuestos"
+	}
+	
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Detectar conflictos", "ports_conflicts"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
 }

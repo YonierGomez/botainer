@@ -308,8 +308,20 @@
     <div class="feat"><div class="feat-icon">🔍</div><h3>Universal search</h3><p>Search across containers, images and volumes with a single command.</p></div>
     <div class="feat"><div class="feat-icon">📡</div><h3>Remote image tracking</h3><p>Monitor Docker images from any registry (Docker Hub, GHCR, private) for updates.</p></div>
     <div class="feat"><div class="feat-icon">📦</div><h3>Helm chart monitoring</h3><p>Track Helm charts from Artifact Hub and get notified of new versions.</p></div>
+    <div class="feat"><div class="feat-icon">⚠️</div><h3>Resource alerts</h3><p>Configure CPU/RAM/Disk thresholds and receive instant alerts.</p></div>
+    <div class="feat"><div class="feat-icon">🏥</div><h3>Health checks</h3><p>HTTP/TCP health checks with automatic notifications on failure.</p></div>
+    <div class="feat"><div class="feat-icon">📋</div><h3>Audit logs</h3><p>Complete command history with user tracking and export capability.</p></div>
+    <div class="feat"><div class="feat-icon">🔒</div><h3>Vulnerability scanning</h3><p>Scan images with Trivy and get CVE reports instantly.</p></div>
+    <div class="feat"><div class="feat-icon">↩️</div><h3>Rollback system</h3><p>Save previous image versions and rollback with one click.</p></div>
+    <div class="feat"><div class="feat-icon">📋</div><h3>Container templates</h3><p>Save and deploy container configurations as reusable templates.</p></div>
+    <div class="feat"><div class="feat-icon">🔧</div><h3>Maintenance mode</h3><p>Pause all containers except critical ones for system maintenance.</p></div>
+    <div class="feat"><div class="feat-icon">🌐</div><h3>Network management</h3><p>Create, inspect and delete Docker networks with full visibility.</p></div>
+    <div class="feat"><div class="feat-icon">🧹</div><h3>Intelligent cleanup</h3><p>Detect orphaned images and free up disk space automatically.</p></div>
+    <div class="feat"><div class="feat-icon">🔌</div><h3>Port management</h3><p>View all exposed ports and detect conflicts instantly.</p></div>
+    <div class="feat"><div class="feat-icon">🔗</div><h3>Webhooks</h3><p>Send events to external services (Slack, Discord, custom endpoints).</p></div>
+    <div class="feat"><div class="feat-icon">⚙️</div><h3>Update policies</h3><p>Schedule updates and set resource requirements for auto-updates.</p></div>
+    <div class="feat"><div class="feat-icon">📊</div><h3>Scheduled reports</h3><p>Daily or weekly system reports delivered automatically.</p></div>
     <div class="feat"><div class="feat-icon">⭐</div><h3>Favorites</h3><p>Quick access to your most-used containers, persistent per user.</p></div>
-    <div class="feat"><div class="feat-icon">🔐</div><h3>Whitelist security</h3><p>Only authorized users can interact with the bot.</p></div>
   </div>
 </section>
 
@@ -319,7 +331,7 @@
 <section class="section" id="commands">
   <div class="section-header">
     <div class="section-num">02 — Commands</div>
-    <h2>25 commands ready<br/>to use.</h2>
+    <h2>40+ commands ready<br/>to use.</h2>
     <p class="section-sub">Auto-registered in BotFather when the bot starts.</p>
   </div>
   <div class="commands-wrap">
@@ -338,15 +350,27 @@
       </div>
       <div>
         <div class="cmd-group-title">Resources</div>
-        <ul class="cmd-list"><li>/images</li><li>/volumes</li><li>/networks</li><li>/prune</li></ul>
+        <ul class="cmd-list"><li>/images</li><li>/volumes</li><li>/networks</li><li>/prune</li><li>/ports</li></ul>
       </div>
       <div>
         <div class="cmd-group-title">Tracking</div>
-        <ul class="cmd-list"><li>/trackimage</li><li>/trackchart</li><li>/checkupdates</li><li>/autoupdate</li></ul>
+        <ul class="cmd-list"><li>/trackimage</li><li>/trackchart</li><li>/checkupdates</li></ul>
+      </div>
+      <div>
+        <div class="cmd-group-title">Monitoring</div>
+        <ul class="cmd-list"><li>/alerts</li><li>/healthchecks</li><li>/reports</li></ul>
+      </div>
+      <div>
+        <div class="cmd-group-title">Security</div>
+        <ul class="cmd-list"><li>/audit</li><li>/scan</li><li>/webhooks</li><li>/policies</li></ul>
+      </div>
+      <div>
+        <div class="cmd-group-title">Advanced</div>
+        <ul class="cmd-list"><li>/rollback</li><li>/templates</li><li>/maintenance</li><li>/cleanup</li><li>/registries</li></ul>
       </div>
       <div>
         <div class="cmd-group-title">Utilities</div>
-        <ul class="cmd-list"><li>/favorites</li><li>/history</li><li>/diagnose</li><li>/backup</li></ul>
+        <ul class="cmd-list"><li>/favorites</li><li>/history</li><li>/diagnose</li></ul>
       </div>
     </div>
   </div>
