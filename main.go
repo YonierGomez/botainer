@@ -2030,7 +2030,8 @@ func runImageUpdateCheck() int {
 		name := strings.TrimPrefix(c.Names[0], "/")
 		inspect, _ := cli.ContainerInspect(ctx, c.ID)
 		project := inspect.Config.Labels["com.docker.compose.project"]
-		imageMap[c.Image] = append(imageMap[c.Image], containerInfo{name, project})
+		imageTag := inspect.Config.Image // Use the tag, not the digest
+		imageMap[imageTag] = append(imageMap[imageTag], containerInfo{name, project})
 	}
 
 	found := 0
@@ -2051,11 +2052,7 @@ func runImageUpdateCheck() int {
 		if localID == "" || newID == "" || localID == newID {
 			// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
 			if localID != "" && newID != "" && localID == newID {
-				log.Printf("Checking for newer tag: %s", imageTag)
 				newerTag, err := findNewerTag(imageTag)
-				if err != nil {
-					log.Printf("Error checking newer tag for %s: %v", imageTag, err)
-				}
 				if err == nil && newerTag != "" {
 					log.Printf("Found newer tag: %s → %s", imageTag, newerTag)
 					// Found a newer tag version
@@ -2072,8 +2069,6 @@ func runImageUpdateCheck() int {
 					m.ParseMode = "Markdown"
 					bot.Send(m)
 					found++
-				} else {
-					log.Printf("No newer tag found for %s", imageTag)
 				}
 			}
 			continue
@@ -3662,6 +3657,11 @@ var skipTags = map[string]bool{
 	"develop": true, "main": true, "master": true, "lts": true, "mainline": true,
 }
 
+var (
+	registryTokenCache      = make(map[string]string)
+	registryTokenCacheMutex sync.Mutex
+)
+
 // tagParts splits "1.25.0-alpine" into version="1.25.0", suffix="-alpine"
 func tagParts(tag string) (version, suffix string) {
 	for _, s := range knownSuffixes {
@@ -3785,23 +3785,29 @@ func findNewerTag(imageTag string) (string, error) {
 	
 	// Get registry and repo
 	registry, repo := parseRegistryAndRepo(image)
-	log.Printf("findNewerTag: registry=%s, repo=%s", registry, repo)
 	
-	// Fetch token
-	token, err := fetchRegistryToken(registry, repo)
-	if err != nil {
-		log.Printf("Failed to fetch registry token for %s: %v", image, err)
-		return "", nil // Silent fail
+	// Fetch token (with cache)
+	cacheKey := registry + ":" + repo
+	registryTokenCacheMutex.Lock()
+	token, cached := registryTokenCache[cacheKey]
+	registryTokenCacheMutex.Unlock()
+	
+	if !cached {
+		var err error
+		token, err = fetchRegistryToken(registry, repo)
+		if err != nil {
+			return "", nil // Silent fail
+		}
+		registryTokenCacheMutex.Lock()
+		registryTokenCache[cacheKey] = token
+		registryTokenCacheMutex.Unlock()
 	}
-	log.Printf("findNewerTag: got token for %s", image)
 	
 	// List tags
 	allTags, err := listRegistryTags(registry, repo, token)
 	if err != nil {
-		log.Printf("Failed to list tags for %s: %v", image, err)
 		return "", nil // Silent fail
 	}
-	log.Printf("findNewerTag: found %d tags for %s", len(allTags), image)
 	
 	// Find best newer tag with same suffix
 	var best *semver.Version
