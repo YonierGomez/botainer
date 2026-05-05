@@ -2079,8 +2079,16 @@ func runImageUpdateCheck() int {
 										"🟢 *Nueva:* `%s`",
 										icon, strings.Join(names, "`, `"), imgTag, newerTag)
 									
+									// Add action buttons
+									var rows [][]tgbotapi.InlineKeyboardButton
+									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+										tgbotapi.NewInlineKeyboardButtonData("ℹ️ Info", "newtag_info:"+ctrs[0].name),
+										tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+									))
+									
 									m := tgbotapi.NewMessage(notifyChatID, msgText)
 									m.ParseMode = "Markdown"
+									m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 									bot.Send(m)
 								}
 							}(imageTag, containers)
