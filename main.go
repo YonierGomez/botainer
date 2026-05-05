@@ -2090,7 +2090,6 @@ func runImageUpdateCheck() int {
 									// Add action buttons
 									var rows [][]tgbotapi.InlineKeyboardButton
 									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-										tgbotapi.NewInlineKeyboardButtonData("ℹ️ Info", "newtag_info:"+ctrs[0].name),
 										tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 									))
 									
