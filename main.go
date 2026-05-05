@@ -2052,24 +2052,25 @@ func runImageUpdateCheck() int {
 		if localID == "" || newID == "" || localID == newID {
 			// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
 			if localID != "" && newID != "" && localID == newID {
-				newerTag, err := findNewerTag(imageTag)
-				if err == nil && newerTag != "" {
-					log.Printf("Found newer tag: %s → %s", imageTag, newerTag)
-					// Found a newer tag version
-					icon := getIcon(containers[0].name)
-					names := make([]string, 0, len(containers))
-					for _, c := range containers {
-						names = append(names, c.name)
+				// Run in goroutine to avoid blocking
+				go func(imgTag string, ctrs []containerInfo) {
+					newerTag, err := findNewerTag(imgTag)
+					if err == nil && newerTag != "" {
+						log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
+						icon := getIcon(ctrs[0].name)
+						names := make([]string, 0, len(ctrs))
+						for _, c := range ctrs {
+							names = append(names, c.name)
+						}
+						
+						msgText := fmt.Sprintf("🔔 %s *Tag más nuevo disponible*\nImagen actual: `%s`\n✨ Disponible: `%s`\nContenedor(es): `%s`\n\n💡 _Considera actualizar al tag más reciente_",
+							icon, imgTag, newerTag, strings.Join(names, "`, `"))
+						
+						m := tgbotapi.NewMessage(notifyChatID, msgText)
+						m.ParseMode = "Markdown"
+						bot.Send(m)
 					}
-					
-					msgText := fmt.Sprintf("🔔 %s *Tag más nuevo disponible*\nImagen actual: `%s`\n✨ Disponible: `%s`\nContenedor(es): `%s`\n\n💡 _Considera actualizar al tag más reciente_",
-						icon, imageTag, newerTag, strings.Join(names, "`, `"))
-					
-					m := tgbotapi.NewMessage(notifyChatID, msgText)
-					m.ParseMode = "Markdown"
-					bot.Send(m)
-					found++
-				}
+				}(imageTag, containers)
 			}
 			continue
 		}
