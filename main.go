@@ -2057,22 +2057,31 @@ func runImageUpdateCheck() int {
 					newerTag, err := findNewerTag(imgTag)
 					if err == nil && newerTag != "" {
 						log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
+						
+						// Try to get size without full pull (inspect if already exists, otherwise estimate)
+						sizeText := "~"
+						imgInspect, _, err := cli.ImageInspectWithRaw(ctx, newerTag)
+						if err == nil && imgInspect.Size > 0 {
+							sizeMB := float64(imgInspect.Size) / 1024 / 1024
+							if sizeMB > 1024 {
+								sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+							} else {
+								sizeText = fmt.Sprintf("%.1f MB", sizeMB)
+							}
+						}
+						
 						icon := getIcon(ctrs[0].name)
 						names := make([]string, 0, len(ctrs))
 						for _, c := range ctrs {
 							names = append(names, c.name)
 						}
 						
-						// Extract version from tags for cleaner display
-						currentVer := strings.Split(imgTag, ":")[1]
-						newerVer := strings.Split(newerTag, ":")[1]
-						
-						msgText := fmt.Sprintf("🔔 %s *Versión más reciente disponible*\n\n"+
+						msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\n\n"+
 							"📦 *Contenedor:* `%s`\n"+
-							"🏷️ *Actual:* `%s`\n"+
-							"✨ *Disponible:* `%s`\n\n"+
-							"💡 _Puedes actualizar manualmente cambiando el tag en tu compose_",
-							icon, strings.Join(names, "`, `"), currentVer, newerVer)
+							"📥 *Tamaño:* `%s`\n\n"+
+							"🔴 *Actual:* `%s`\n"+
+							"🟢 *Nueva:* `%s`",
+							icon, strings.Join(names, "`, `"), sizeText, imgTag, newerTag)
 						
 						m := tgbotapi.NewMessage(notifyChatID, msgText)
 						m.ParseMode = "Markdown"
