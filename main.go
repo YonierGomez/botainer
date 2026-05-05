@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	botVersion     = "1.2.1"                      // Smart update detection & performance boost
+	botVersion     = "1.2.2"                      // Fix callback data parsing for image tags
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
