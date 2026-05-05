@@ -909,11 +909,15 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				if err != nil {
 					out = fmt.Sprintf("❌ Error al inspeccionar contenedor: %v", err)
 				} else {
-					// Pull new image first
-					pullOut, pullErr := runCmdWithTimeout(2*time.Minute, "docker", "pull", newTag)
+					// Pull new image first using Docker API
+					pullResp, pullErr := cli.ImagePull(ctx, newTag, image.PullOptions{})
 					if pullErr != nil {
-						out = fmt.Sprintf("❌ Error al descargar imagen: %v\n%s", pullErr, pullOut)
+						out = fmt.Sprintf("❌ Error al descargar imagen: %v", pullErr)
 					} else {
+						// Consume the pull response to ensure it completes
+						io.Copy(io.Discard, pullResp)
+						pullResp.Close()
+						
 						// Stop and remove old container
 						cli.ContainerStop(ctx, containerName, container.StopOptions{})
 						cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
