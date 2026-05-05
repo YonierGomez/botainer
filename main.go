@@ -2035,6 +2035,9 @@ func runImageUpdateCheck() int {
 	semaphore := make(chan struct{}, 10) // Limit to 10 concurrent checks
 	var wg sync.WaitGroup
 	
+	newerTagChecks := 0
+	maxNewerTagChecks := 5 // Only check 5 images for newer tags
+	
 	for imageTag, containers := range imageMap {
 		wg.Add(1)
 		semaphore <- struct{}{} // Acquire
@@ -2059,7 +2062,7 @@ func runImageUpdateCheck() int {
 			if localID == "" || newID == "" || localID == newID {
 				// No digest change, but check if a newer tag exists (e.g., 3.18 → 3.20)
 				// Only for semver tags (skip latest, alpine, etc.)
-				if localID != "" && newID != "" && localID == newID {
+				if localID != "" && newID != "" && localID == newID && newerTagChecks < maxNewerTagChecks {
 					// Quick check: only process if tag looks like semver
 					parts := strings.Split(imgTag, ":")
 					if len(parts) == 2 {
@@ -2068,38 +2071,53 @@ func runImageUpdateCheck() int {
 						if !skipTags[tag] {
 							// Check if tag starts with a number (likely semver)
 							if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
-								newerTag, err := findNewerTag(imgTag)
-								if err == nil && newerTag != "" {
-									log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
-									
-									icon := getIcon(ctrs[0].name)
-									names := make([]string, 0, len(ctrs))
-									for _, c := range ctrs {
-										names = append(names, c.name)
+								newerTagChecks++
+								
+								// Use a timeout for tag checking
+								done := make(chan bool, 1)
+								go func() {
+									newerTag, err := findNewerTag(imgTag)
+									if err == nil && newerTag != "" {
+										log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
+										
+										icon := getIcon(ctrs[0].name)
+										names := make([]string, 0, len(ctrs))
+										for _, c := range ctrs {
+											names = append(names, c.name)
+										}
+										
+										msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\n\n"+
+											"📦 *Contenedor:* `%s`\n\n"+
+											"🔴 *Actual:* `%s`\n"+
+											"🟢 *Nueva:* `%s`",
+											icon, strings.Join(names, "`, `"), imgTag, newerTag)
+										
+										// Add action buttons
+										var rows [][]tgbotapi.InlineKeyboardButton
+										
+										// Both compose and standalone can be auto-updated
+										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+											tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar ahora", "newtag_update:"+ctrs[0].name+":"+imgTag+":"+newerTag+":"+ctrs[0].project),
+										))
+										
+										rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+											tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+										))
+										
+										m := tgbotapi.NewMessage(notifyChatID, msgText)
+										m.ParseMode = "Markdown"
+										m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+										bot.Send(m)
 									}
-									
-									msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\n\n"+
-										"📦 *Contenedor:* `%s`\n\n"+
-										"🔴 *Actual:* `%s`\n"+
-										"🟢 *Nueva:* `%s`",
-										icon, strings.Join(names, "`, `"), imgTag, newerTag)
-									
-									// Add action buttons
-									var rows [][]tgbotapi.InlineKeyboardButton
-									
-									// Both compose and standalone can be auto-updated
-									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-										tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar ahora", "newtag_update:"+ctrs[0].name+":"+imgTag+":"+newerTag+":"+ctrs[0].project),
-									))
-									
-									rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-										tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-									))
-									
-									m := tgbotapi.NewMessage(notifyChatID, msgText)
-									m.ParseMode = "Markdown"
-									m.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-									bot.Send(m)
+									done <- true
+								}()
+								
+								// Wait max 10 seconds for tag check
+								select {
+								case <-done:
+									// Completed
+								case <-time.After(10 * time.Second):
+									log.Printf("Timeout checking newer tag for %s", imgTag)
 								}
 							}
 						}
