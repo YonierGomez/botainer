@@ -2198,7 +2198,7 @@ func runImageUpdateCheck() int {
 func runImageUpdateCheckWithFeedback(chatID int64) {
 	found := runImageUpdateCheck()
 	if found == 0 {
-		sendMessageWithClose(chatID, "✅ Todas las imágenes están actualizadas")
+		sendMessageWithClose(chatID, "✅ No hay actualizaciones de digest\n\n_Verificando tags más recientes..._")
 	}
 }
 func handleAutoUpdate(chatID int64) {
