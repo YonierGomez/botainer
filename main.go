@@ -2306,7 +2306,12 @@ func handleTrackImage(chatID int64) {
 	} else {
 		text += "✅ Trackeadas:\n"
 		for _, img := range tracked {
-			text += "• `" + img + "`\n"
+			digest := trackedImages[img]
+			shortDigest := digest
+			if len(shortDigest) > 19 {
+				shortDigest = "..." + shortDigest[len(shortDigest)-16:]
+			}
+			text += fmt.Sprintf("• `%s` → `%s`\n", img, shortDigest)
 		}
 	}
 
