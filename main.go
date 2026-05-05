@@ -3263,30 +3263,55 @@ func handleDiagnose(chatID int64) {
 
 	ctx := context.Background()
 	issues := []string{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
-	stoppedContainers, _ := cli.ContainerList(ctx, container.ListOptions{
-		All:     true,
-		Filters: filters.NewArgs(filters.Arg("status", "exited")),
-	})
-	if len(stoppedContainers) > 0 {
-		issues = append(issues, fmt.Sprintf("⚠️ %d contenedores detenidos", len(stoppedContainers)))
-	}
-
-	stats := getStats()
-	for name, stat := range stats {
-		var cpu float64
-		fmt.Sscanf(strings.TrimSuffix(stat.CPU, "%"), "%f", &cpu)
-		if cpu > 80 {
-			issues = append(issues, fmt.Sprintf("🔥 %s usando %s CPU", name, stat.CPU))
+	// Check 1: Stopped containers
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		stoppedContainers, err := cli.ContainerList(ctx, container.ListOptions{
+			All:     true,
+			Filters: filters.NewArgs(filters.Arg("status", "exited")),
+		})
+		if err == nil && len(stoppedContainers) > 0 {
+			mu.Lock()
+			issues = append(issues, fmt.Sprintf("⚠️ %d contenedores detenidos", len(stoppedContainers)))
+			mu.Unlock()
 		}
-	}
+	}()
 
-	danglingImages, _ := cli.ImageList(ctx, image.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("dangling", "true")),
-	})
-	if len(danglingImages) > 0 {
-		issues = append(issues, fmt.Sprintf("🗑️ %d imágenes sin usar (ejecuta /prune)", len(danglingImages)))
-	}
+	// Check 2: High CPU usage
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		stats := getStats()
+		for name, stat := range stats {
+			var cpu float64
+			fmt.Sscanf(strings.TrimSuffix(stat.CPU, "%"), "%f", &cpu)
+			if cpu > 80 {
+				mu.Lock()
+				issues = append(issues, fmt.Sprintf("🔥 %s usando %s CPU", name, stat.CPU))
+				mu.Unlock()
+			}
+		}
+	}()
+
+	// Check 3: Dangling images
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		danglingImages, err := cli.ImageList(ctx, image.ListOptions{
+			Filters: filters.NewArgs(filters.Arg("dangling", "true")),
+		})
+		if err == nil && len(danglingImages) > 0 {
+			mu.Lock()
+			issues = append(issues, fmt.Sprintf("🗑️ %d imágenes sin usar (ejecuta /prune)", len(danglingImages)))
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
 
 	if len(issues) == 0 {
 		sendMessageWithClose(chatID, "✅ *Todo está bien*\nNo se detectaron problemas en el sistema")
