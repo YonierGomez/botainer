@@ -2058,39 +2058,6 @@ func runImageUpdateCheck() int {
 					if err == nil && newerTag != "" {
 						log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
 						
-						// Get size from registry manifest
-						sizeText := "~"
-						parts := strings.Split(newerTag, ":")
-						log.Printf("Split %s into %d parts: %v", newerTag, len(parts), parts)
-						if len(parts) == 2 {
-							image, tag := parts[0], parts[1]
-							registry, repo := parseRegistryAndRepo(image)
-							log.Printf("Getting size for %s from %s/%s", newerTag, registry, repo)
-							
-							// Get token from cache or fetch
-							cacheKey := registry + ":" + repo
-							registryTokenCacheMutex.Lock()
-							token, cached := registryTokenCache[cacheKey]
-							registryTokenCacheMutex.Unlock()
-							
-							if !cached {
-								token, _ = fetchRegistryToken(registry, repo)
-								log.Printf("Fetched new token for %s", registry)
-							}
-							
-							if size, err := getImageSizeFromRegistry(registry, repo, tag, token); err == nil && size > 0 {
-								sizeMB := float64(size) / 1024 / 1024
-								if sizeMB > 1024 {
-									sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
-								} else {
-									sizeText = fmt.Sprintf("%.1f MB", sizeMB)
-								}
-								log.Printf("Got size for %s: %s", newerTag, sizeText)
-							} else {
-								log.Printf("Failed to get size for %s: %v", newerTag, err)
-							}
-						}
-						
 						icon := getIcon(ctrs[0].name)
 						names := make([]string, 0, len(ctrs))
 						for _, c := range ctrs {
@@ -2098,11 +2065,10 @@ func runImageUpdateCheck() int {
 						}
 						
 						msgText := fmt.Sprintf("🆕 %s *Nueva versión disponible*\n\n"+
-							"📦 *Contenedor:* `%s`\n"+
-							"📥 *Tamaño:* `%s`\n\n"+
+							"📦 *Contenedor:* `%s`\n\n"+
 							"🔴 *Actual:* `%s`\n"+
 							"🟢 *Nueva:* `%s`",
-							icon, strings.Join(names, "`, `"), sizeText, imgTag, newerTag)
+							icon, strings.Join(names, "`, `"), imgTag, newerTag)
 						
 						m := tgbotapi.NewMessage(notifyChatID, msgText)
 						m.ParseMode = "Markdown"
@@ -3905,51 +3871,4 @@ func findNewerTag(imageTag string) (string, error) {
 	}
 	
 	return "", nil
-}
-
-// getImageSizeFromRegistry fetches image size from registry manifest
-func getImageSizeFromRegistry(registry, repo, tag, token string) (int64, error) {
-	manifestURL := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registry, repo, tag)
-	
-	client := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequest("GET", manifestURL, nil)
-	if err != nil {
-		return 0, err
-	}
-	
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("registry returned %d", resp.StatusCode)
-	}
-	
-	var manifest struct {
-		Config struct {
-			Size int64 `json:"size"`
-		} `json:"config"`
-		Layers []struct {
-			Size int64 `json:"size"`
-		} `json:"layers"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return 0, err
-	}
-	
-	// Sum config + all layers
-	totalSize := manifest.Config.Size
-	for _, layer := range manifest.Layers {
-		totalSize += layer.Size
-	}
-	
-	return totalSize, nil
 }
