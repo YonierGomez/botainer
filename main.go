@@ -257,41 +257,51 @@ func normalizeID(id string) string {
 func getStats() map[string]struct{ CPU, Mem string } {
 	ctx := context.Background()
 	stats := make(map[string]struct{ CPU, Mem string })
+	var mu sync.Mutex
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{})
 	if err != nil {
 		return stats
 	}
 
+	var wg sync.WaitGroup
 	for _, c := range containers {
-		name := strings.TrimPrefix(c.Names[0], "/")
-		statsResp, err := cli.ContainerStats(ctx, c.ID, false)
-		if err != nil {
-			continue
-		}
-		defer statsResp.Body.Close()
+		wg.Add(1)
+		go func(cont types.Container) {
+			defer wg.Done()
+			
+			name := strings.TrimPrefix(cont.Names[0], "/")
+			statsResp, err := cli.ContainerStats(ctx, cont.ID, false)
+			if err != nil {
+				return
+			}
+			defer statsResp.Body.Close()
 
-		var v container.StatsResponse
-		if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
-			continue
-		}
+			var v container.StatsResponse
+			if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
+				return
+			}
 
-		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
-		cpuPercent := 0.0
-		if systemDelta > 0 && cpuDelta > 0 {
-			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
-		}
+			cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+			systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+			cpuPercent := 0.0
+			if systemDelta > 0 && cpuDelta > 0 {
+				cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+			}
 
-		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
+			memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
+			memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
 
-		stats[name] = struct{ CPU, Mem string }{
-			fmt.Sprintf("%.2f%%", cpuPercent),
-			fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit),
-		}
+			mu.Lock()
+			stats[name] = struct{ CPU, Mem string }{
+				fmt.Sprintf("%.2f%%", cpuPercent),
+				fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit),
+			}
+			mu.Unlock()
+		}(c)
 	}
 
+	wg.Wait()
 	return stats
 }
 
