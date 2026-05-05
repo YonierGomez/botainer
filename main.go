@@ -2058,15 +2058,30 @@ func runImageUpdateCheck() int {
 					if err == nil && newerTag != "" {
 						log.Printf("Found newer tag: %s → %s", imgTag, newerTag)
 						
-						// Try to get size without full pull (inspect if already exists, otherwise estimate)
+						// Get size from registry manifest
 						sizeText := "~"
-						imgInspect, _, err := cli.ImageInspectWithRaw(ctx, newerTag)
-						if err == nil && imgInspect.Size > 0 {
-							sizeMB := float64(imgInspect.Size) / 1024 / 1024
-							if sizeMB > 1024 {
-								sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
-							} else {
-								sizeText = fmt.Sprintf("%.1f MB", sizeMB)
+						parts := strings.Split(newerTag, ":")
+						if len(parts) == 2 {
+							image, tag := parts[0], parts[1]
+							registry, repo := parseRegistryAndRepo(image)
+							
+							// Get token from cache or fetch
+							cacheKey := registry + ":" + repo
+							registryTokenCacheMutex.Lock()
+							token, cached := registryTokenCache[cacheKey]
+							registryTokenCacheMutex.Unlock()
+							
+							if !cached {
+								token, _ = fetchRegistryToken(registry, repo)
+							}
+							
+							if size, err := getImageSizeFromRegistry(registry, repo, tag, token); err == nil && size > 0 {
+								sizeMB := float64(size) / 1024 / 1024
+								if sizeMB > 1024 {
+									sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+								} else {
+									sizeText = fmt.Sprintf("%.1f MB", sizeMB)
+								}
 							}
 						}
 						
@@ -3831,6 +3846,53 @@ func findNewerTag(imageTag string) (string, error) {
 	var best *semver.Version
 	var bestTag string
 	
+
+// getImageSizeFromRegistry fetches image size from registry manifest
+func getImageSizeFromRegistry(registry, repo, tag, token string) (int64, error) {
+	manifestURL := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registry, repo, tag)
+	
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", manifestURL, nil)
+	if err != nil {
+		return 0, err
+	}
+	
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("registry returned %d", resp.StatusCode)
+	}
+	
+	var manifest struct {
+		Config struct {
+			Size int64 `json:"size"`
+		} `json:"config"`
+		Layers []struct {
+			Size int64 `json:"size"`
+		} `json:"layers"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+		return 0, err
+	}
+	
+	// Sum config + all layers
+	totalSize := manifest.Config.Size
+	for _, layer := range manifest.Layers {
+		totalSize += layer.Size
+	}
+	
+	return totalSize, nil
+}
 	// Determine if current version is major.minor or major.minor.patch
 	currentParts := strings.Split(cv.String(), ".")
 	
