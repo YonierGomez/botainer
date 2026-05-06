@@ -294,17 +294,31 @@ jobs:
 
       - name: Send Telegram notification to channel
         if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           TAG="v${VERSION}"
           
-          # Build simple, clean message
+          # Get first 5 commit messages since last release
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"• %s" | head -5)
+          else
+            COMMITS=$(git log --pretty=format:"• %s" -5)
+          fi
+          
+          # Format for Telegram
+          CHANGELOG=$(echo "$COMMITS" | sed 's/$/\\n/g' | tr -d '\n' | sed 's/\\n$//g')
+          
+          # Build message
           MESSAGE="🚀 *Botainer ${VERSION}* disponible%0A%0A"
+          MESSAGE="${MESSAGE}✨ *Novedades:*%0A${CHANGELOG}%0A%0A"
           MESSAGE="${MESSAGE}🐳 *Actualizar:*%0A\`\`\`bash%0A"
           MESSAGE="${MESSAGE}docker pull yoniergomez/botainer:latest%0A"
           MESSAGE="${MESSAGE}docker compose up -d --build botainer%0A"
           MESSAGE="${MESSAGE}\`\`\`%0A"
-          MESSAGE="${MESSAGE}📖 [Ver novedades completas](https://github.com/YonierGomez/botainer/releases/tag/${TAG})"
+          MESSAGE="${MESSAGE}📖 [Ver release completo](https://github.com/YonierGomez/botainer/releases/tag/${TAG})"
           
           # Send to Telegram channel
           curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
