@@ -42,6 +42,7 @@ function App() {
   const [selectedContainer, setSelectedContainer] = useState<Container | null>(null)
   const [logs, setLogs] = useState<string>('')
   const [loadingLogs, setLoadingLogs] = useState(false)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
 
   useEffect(() => {
     if (window.Telegram?.WebApp) {
@@ -50,8 +51,8 @@ function App() {
     }
     fetchContainers()
 
-    // Auto-refresh every 5 seconds
-    const interval = setInterval(fetchContainers, 5000)
+    // Auto-refresh every 5 seconds (silent)
+    const interval = setInterval(() => fetchContainers(true), 5000)
     return () => clearInterval(interval)
   }, [])
 
@@ -63,23 +64,40 @@ function App() {
     }
   }
 
-  const fetchContainers = async () => {
+  const fetchContainers = async (silent = false) => {
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+        setError(null)
+      }
+      
       const response = await fetch('/api/containers', {
         headers: getAuthHeaders()
       })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
       const result = await response.json()
       
       if (result.success) {
         setContainers(result.data)
+        if (isInitialLoad) setIsInitialLoad(false)
       } else {
-        setError(result.error || 'Failed to fetch containers')
+        if (!silent) {
+          setError(result.error || 'Failed to fetch containers')
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      console.error('Fetch error:', err)
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Unknown error')
+      }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -183,7 +201,7 @@ function App() {
           <h2 className="text-xl font-bold text-white mb-2">Error</h2>
           <p className="text-red-400 mb-6">{error}</p>
           <button
-            onClick={fetchContainers}
+            onClick={() => fetchContainers(false)}
             className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg"
           >
             Retry
@@ -207,7 +225,7 @@ function App() {
               </div>
             </div>
             <button
-              onClick={fetchContainers}
+              onClick={() => fetchContainers(false)}
               className="p-2 hover:bg-gray-700 rounded-lg transition-colors relative"
               title="Refresh (auto-updates every 5s)"
             >
