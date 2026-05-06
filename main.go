@@ -774,21 +774,16 @@ func handlePS(chatID int64) {
 			project := inspect.Config.Labels["com.docker.compose.project"]
 
 			cpu, mem := "N/A", "N/A"
-			statsResp, err := cli.ContainerStats(ctx, c.ID, false)
+			
+			// Use docker stats command for accurate CPU
+			cmd := exec.Command("docker", "stats", c.ID[:12], "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}")
+			output, err := cmd.Output()
 			if err == nil {
-				var v container.StatsResponse
-				if json.NewDecoder(statsResp.Body).Decode(&v) == nil {
-					cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-					systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
-					if systemDelta > 0 && cpuDelta > 0 {
-						cpuPercent := (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
-						cpu = fmt.Sprintf("%.1f%%", cpuPercent)
-					}
-					memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-					memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
-					mem = fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit)
+				parts := strings.Split(strings.TrimSpace(string(output)), "|")
+				if len(parts) == 2 {
+					cpu = parts[0]
+					mem = parts[1]
 				}
-				statsResp.Body.Close()
 			}
 
 			results <- result{name, icon, c.Status, c.Image, project, cpu, mem}
@@ -5221,44 +5216,31 @@ func handleAlerts(chatID int64) {
 		hasRunning = true
 		name := strings.TrimPrefix(c.Names[0], "/")
 		
-		statsResp, err := cli.ContainerStats(ctx, c.ID, false)
+		// Use docker stats command for accurate results
+		cmd := exec.Command("docker", "stats", c.ID[:12], "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}")
+		output, err := cmd.Output()
 		if err != nil {
 			text += fmt.Sprintf("❌ `%s` - Error obteniendo stats\n\n", name)
 			continue
 		}
 		
-		var v container.StatsResponse
-		if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
-			statsResp.Body.Close()
+		parts := strings.Split(strings.TrimSpace(string(output)), "|")
+		if len(parts) != 2 {
 			continue
 		}
-		statsResp.Body.Close()
 		
-		// CPU calculation using PreCPUStats
-		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
-		cpuPercent := 0.0
-		if systemDelta > 0 && cpuDelta > 0 {
-			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
-		}
-		
-		// Memory calculation
-		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
-		memPercent := 0.0
-		if memLimit > 0 {
-			memPercent = (memUsage / memLimit) * 100
-		}
+		cpuStr := strings.TrimSuffix(parts[0], "%")
+		cpuPercent, _ := strconv.ParseFloat(cpuStr, 64)
 		
 		icon := "🟢"
-		if cpuPercent > 80 || memPercent > 80 {
+		if cpuPercent > 80 {
 			icon = "🔴"
-		} else if cpuPercent > 50 || memPercent > 50 {
+		} else if cpuPercent > 50 {
 			icon = "🟡"
 		}
 		
-		text += fmt.Sprintf("%s `%s`\n   CPU: %.1f%% | RAM: %.0fMB (%.1f%%)\n\n", 
-			icon, name, cpuPercent, memUsage, memPercent)
+		text += fmt.Sprintf("%s `%s`\n   CPU: %.1f%% | RAM: %s\n\n", 
+			icon, name, cpuPercent, parts[1])
 	}
 	
 	if !hasRunning {
