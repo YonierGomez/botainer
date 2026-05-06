@@ -77,12 +77,16 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		initData := r.Header.Get("X-Telegram-Init-Data")
 		if initData == "" {
-			http.Error(w, `{"success":false,"error":"Unauthorized"}`, http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"success":false,"error":"Unauthorized"}`))
 			return
 		}
 
 		if !s.validateTelegramAuth(initData) {
-			http.Error(w, `{"success":false,"error":"Invalid auth"}`, http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"success":false,"error":"Invalid auth"}`))
 			return
 		}
 
