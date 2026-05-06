@@ -45,6 +45,13 @@ function App() {
   const [isInitialLoad, setIsInitialLoad] = useState(true)
 
   useEffect(() => {
+    // Check if running in Telegram
+    if (!window.Telegram?.WebApp?.initData) {
+      setLoading(false)
+      setError('Please open this app from Telegram bot')
+      return
+    }
+
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready()
       window.Telegram.WebApp.expand()
@@ -75,24 +82,34 @@ function App() {
         headers: getAuthHeaders()
       })
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-      
-      const result = await response.json()
-      
-      if (result.success) {
-        setContainers(result.data)
-        if (isInitialLoad) setIsInitialLoad(false)
-      } else {
+      // Try to parse JSON, catch if it fails
+      let result
+      try {
+        result = await response.json()
+      } catch (jsonError) {
+        // Not JSON - probably HTML error page
         if (!silent) {
-          setError(result.error || 'Failed to fetch containers')
+          setError('Please open this app from Telegram bot')
         }
+        return
       }
+      
+      // Check response status after parsing
+      if (!response.ok || !result.success) {
+        if (!silent) {
+          setError(result.error || 'Please open this app from Telegram bot')
+        }
+        return
+      }
+      
+      // Success - update containers
+      setContainers(result.data || [])
+      if (isInitialLoad) setIsInitialLoad(false)
+      
     } catch (err) {
       console.error('Fetch error:', err)
       if (!silent) {
-        setError(err instanceof Error ? err.message : 'Unknown error')
+        setError('Connection error. Please try again.')
       }
     } finally {
       if (!silent) {
