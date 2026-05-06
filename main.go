@@ -2174,6 +2174,118 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		return
 	}
 	
+	// Webhook callbacks
+	if query.Data == "webhook_add" {
+		userState[query.From.ID] = "webhook_name"
+		sendMessageWithClose(chatID, "📝 *Nuevo Webhook*\n\nEscribe un nombre para el webhook:")
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
+	
+	if query.Data == "webhook_manual" {
+		text := "📖 *Configuración Manual*\n\n"
+		text += "Edita `/data/config.json` y agrega:\n\n"
+		text += "```json\n"
+		text += `"webhooks": {
+  "discord": {
+    "url": "https://discord.com/api/webhooks/...",
+    "events": ["container.start", "container.stop"],
+    "headers": {},
+    "enabled": true
+  }
+}` + "\n```"
+		sendMessageWithClose(chatID, text)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
+	
+	// Webhook event selection
+	if strings.HasPrefix(query.Data, "wh_event:") {
+		event := strings.TrimPrefix(query.Data, "wh_event:")
+		userID := query.From.ID
+		
+		if createData[userID] == nil {
+			createData[userID] = make(map[string]string)
+		}
+		
+		// Get current events
+		eventsStr := createData[userID]["webhook_events"]
+		events := []string{}
+		if eventsStr != "" {
+			events = strings.Split(eventsStr, ",")
+		}
+		
+		// Toggle event
+		found := false
+		newEvents := []string{}
+		for _, e := range events {
+			if e == event {
+				found = true
+			} else {
+				newEvents = append(newEvents, e)
+			}
+		}
+		
+		if !found {
+			if event == "all" {
+				newEvents = []string{"all"}
+			} else {
+				// Remove "all" if adding specific event
+				filtered := []string{}
+				for _, e := range newEvents {
+					if e != "all" {
+						filtered = append(filtered, e)
+					}
+				}
+				filtered = append(filtered, event)
+				newEvents = filtered
+			}
+		}
+		
+		createData[userID]["webhook_events"] = strings.Join(newEvents, ",")
+		
+		// Update message
+		text := fmt.Sprintf("📋 Eventos seleccionados: %s\n\nPuedes elegir más o guardar.", strings.Join(newEvents, ", "))
+		edit := tgbotapi.NewEditMessageText(chatID, query.Message.MessageID, text)
+		edit.ReplyMarkup = query.Message.ReplyMarkup
+		bot.Send(edit)
+		
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
+	
+	// Save webhook
+	if query.Data == "wh_save" {
+		userID := query.From.ID
+		data := createData[userID]
+		
+		if data == nil || data["webhook_name"] == "" || data["webhook_url"] == "" {
+			sendMessageWithClose(chatID, "❌ Error: Datos incompletos")
+			bot.Request(tgbotapi.NewCallback(query.ID, ""))
+			return
+		}
+		
+		eventsStr := data["webhook_events"]
+		if eventsStr == "" {
+			eventsStr = "all"
+		}
+		
+		webhooks[data["webhook_name"]] = Webhook{
+			URL:     data["webhook_url"],
+			Events:  strings.Split(eventsStr, ","),
+			Headers: make(map[string]string),
+			Enabled: true,
+		}
+		
+		saveConfig()
+		delete(userState, userID)
+		delete(createData, userID)
+		
+		sendMessageWithClose(chatID, fmt.Sprintf("✅ Webhook *%s* creado correctamente", data["webhook_name"]))
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
+	
 	// Scan callback
 	if strings.HasPrefix(query.Data, "scan:") {
 		containerName := strings.TrimPrefix(query.Data, "scan:")
@@ -4032,7 +4144,6 @@ func main() {
 		{Command: "policies", Description: "⚙️ Políticas de actualización"},
 		// Phase 4
 		{Command: "networks", Description: "🌐 Gestionar redes"},
-		{Command: "registries", Description: "📦 Registries privados"},
 		{Command: "cleanup", Description: "🧹 Limpieza inteligente"},
 		{Command: "ports", Description: "🔌 Gestión de puertos"},
 	}
@@ -4106,6 +4217,39 @@ func main() {
 				if state == "waiting_track_chart" {
 					delete(userState, userID)
 					go addTrackedChart(chatID, text)
+					continue
+				}
+				if state == "webhook_name" {
+					if createData[userID] == nil {
+						createData[userID] = make(map[string]string)
+					}
+					createData[userID]["webhook_name"] = text
+					userState[userID] = "webhook_url"
+					sendMessageWithClose(chatID, "🔗 Escribe la URL del webhook:")
+					continue
+				}
+				if state == "webhook_url" {
+					createData[userID]["webhook_url"] = text
+					userState[userID] = "webhook_events"
+					keyboard := tgbotapi.NewInlineKeyboardMarkup(
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("🟢 Start", "wh_event:start"),
+							tgbotapi.NewInlineKeyboardButtonData("🔴 Stop", "wh_event:stop"),
+						),
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("💥 Die", "wh_event:die"),
+							tgbotapi.NewInlineKeyboardButtonData("🔄 Update", "wh_event:update"),
+						),
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("✅ Todos", "wh_event:all"),
+						),
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData("💾 Guardar", "wh_save"),
+						),
+					)
+					msg := tgbotapi.NewMessage(chatID, "📋 Selecciona los eventos (puedes elegir varios):")
+					msg.ReplyMarkup = keyboard
+					bot.Send(msg)
 					continue
 				}
 			}
@@ -4213,8 +4357,6 @@ func main() {
 			case "policies":
 				go handlePolicies(chatID)
 			// Phase 4
-			case "registries":
-				go handleRegistries(chatID)
 			case "cleanup":
 				go handleCleanup(chatID)
 			case "ports":
@@ -5067,34 +5209,47 @@ func sendScheduledReports() {
 // Handle /alerts command
 func handleAlerts(chatID int64) {
 	ctx := context.Background()
-	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
 	
 	text := "⚠️ *Uso de Recursos*\n\n"
+	hasRunning := false
 	
 	for _, c := range containers {
 		if c.State != "running" {
 			continue
 		}
+		hasRunning = true
 		name := strings.TrimPrefix(c.Names[0], "/")
+		
 		stats, err := cli.ContainerStats(ctx, c.ID, false)
 		if err != nil {
+			text += fmt.Sprintf("❌ `%s` - Error obteniendo stats\n\n", name)
 			continue
 		}
 		
 		var v container.StatsResponse
-		json.NewDecoder(stats.Body).Decode(&v)
+		if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
+			stats.Body.Close()
+			continue
+		}
 		stats.Body.Close()
 		
+		// CPU calculation
 		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
 		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
 		cpuPercent := 0.0
-		if systemDelta > 0 && len(v.CPUStats.CPUUsage.PercpuUsage) > 0 {
-			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100
+		numCPU := len(v.CPUStats.CPUUsage.PercpuUsage)
+		if systemDelta > 0 && numCPU > 0 {
+			cpuPercent = (cpuDelta / systemDelta) * float64(numCPU) * 100
 		}
 		
+		// Memory calculation
 		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
 		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
-		memPercent := (memUsage / memLimit) * 100
+		memPercent := 0.0
+		if memLimit > 0 {
+			memPercent = (memUsage / memLimit) * 100
+		}
 		
 		icon := "🟢"
 		if cpuPercent > 80 || memPercent > 80 {
@@ -5107,7 +5262,7 @@ func handleAlerts(chatID int64) {
 			icon, name, cpuPercent, memUsage, memPercent)
 	}
 	
-	if text == "⚠️ *Uso de Recursos*\n\n" {
+	if !hasRunning {
 		text += "Sin contenedores corriendo"
 	}
 	
@@ -5228,14 +5383,18 @@ func handleAudit(chatID int64) {
 			start = 0
 		}
 		
+		loc, _ := time.LoadLocation("America/Bogota")
+		
 		for i := len(auditLog) - 1; i >= start; i-- {
 			entry := auditLog[i]
 			status := "✅"
 			if !entry.Success {
 				status = "❌"
 			}
-			text += fmt.Sprintf("%s `%s` - %s (%s)\n  %s\n", 
-				status, entry.Command, entry.Target, entry.Timestamp.Format("15:04"), entry.Timestamp.Format("2006-01-02"))
+			localTime := entry.Timestamp.In(loc)
+			text += fmt.Sprintf("%s `%s` - %s\n  %s %s\n\n", 
+				status, entry.Command, entry.Target, 
+				localTime.Format("2006-01-02"), localTime.Format("15:04"))
 		}
 	}
 	
@@ -5327,22 +5486,12 @@ func handleWebhooks(chatID int64) {
 	
 	if len(webhooks) == 0 {
 		text += "📋 Sin webhooks configurados\n\n"
-		text += "*Cómo configurar:*\n"
-		text += "Edita `/data/config.json` y agrega:\n\n"
-		text += "```json\n"
-		text += `"webhooks": {
-  "discord": {
-    "url": "https://discord.com/api/webhooks/...",
-    "events": ["container.start", "container.stop"],
-    "headers": {},
-    "enabled": true
-  }
-}` + "\n```\n\n"
+		text += "Los webhooks envían notificaciones HTTP cuando ocurren eventos.\n\n"
 		text += "*Eventos disponibles:*\n"
-		text += "• `container.start`\n"
-		text += "• `container.stop`\n"
-		text += "• `container.die`\n"
-		text += "• `image.update`"
+		text += "• container.start\n"
+		text += "• container.stop\n"
+		text += "• container.die\n"
+		text += "• image.update"
 	} else {
 		text += "✅ *Webhooks configurados:*\n\n"
 		for name, wh := range webhooks {
@@ -5354,7 +5503,22 @@ func handleWebhooks(chatID int64) {
 		}
 	}
 	
-	sendMessageWithClose(chatID, text)
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar Webhook", "webhook_add"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📖 Ver Configuración Manual", "webhook_manual"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+	bot.Send(msg)
 }
 
 // Send webhook notification
