@@ -775,20 +775,17 @@ func handlePS(chatID int64) {
 
 			cpu, mem := "N/A", "N/A"
 			
-			// Read stats twice to get proper delta
-			statsResp1, err := cli.ContainerStats(ctx, c.ID, false)
+			// Use stream mode to get accurate stats
+			statsResp, err := cli.ContainerStats(ctx, c.ID, true)
 			if err == nil {
+				decoder := json.NewDecoder(statsResp.Body)
+				
+				// Read first stat
 				var v1 container.StatsResponse
-				json.NewDecoder(statsResp1.Body).Decode(&v1)
-				statsResp1.Body.Close()
-				
-				// Wait a bit and read again
-				time.Sleep(500 * time.Millisecond)
-				
-				statsResp2, err := cli.ContainerStats(ctx, c.ID, false)
-				if err == nil {
+				if decoder.Decode(&v1) == nil {
+					// Read second stat
 					var v2 container.StatsResponse
-					if json.NewDecoder(statsResp2.Body).Decode(&v2) == nil {
+					if decoder.Decode(&v2) == nil {
 						cpuDelta := float64(v2.CPUStats.CPUUsage.TotalUsage - v1.CPUStats.CPUUsage.TotalUsage)
 						systemDelta := float64(v2.CPUStats.SystemUsage - v1.CPUStats.SystemUsage)
 						numCPU := len(v2.CPUStats.CPUUsage.PercpuUsage)
@@ -804,8 +801,8 @@ func handlePS(chatID int64) {
 						memLimit := float64(v2.MemoryStats.Limit) / 1024 / 1024
 						mem = fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit)
 					}
-					statsResp2.Body.Close()
 				}
+				statsResp.Body.Close()
 			}
 
 			results <- result{name, icon, c.Status, c.Image, project, cpu, mem}
@@ -5238,36 +5235,31 @@ func handleAlerts(chatID int64) {
 		hasRunning = true
 		name := strings.TrimPrefix(c.Names[0], "/")
 		
-		// Read stats twice for accurate CPU delta
-		stats1, err := cli.ContainerStats(ctx, c.ID, false)
+		// Use stream mode for accurate CPU stats
+		statsResp, err := cli.ContainerStats(ctx, c.ID, true)
 		if err != nil {
 			text += fmt.Sprintf("❌ `%s` - Error obteniendo stats\n\n", name)
 			continue
 		}
 		
+		decoder := json.NewDecoder(statsResp.Body)
+		
+		// Read first stat
 		var v1 container.StatsResponse
-		if err := json.NewDecoder(stats1.Body).Decode(&v1); err != nil {
-			stats1.Body.Close()
-			continue
-		}
-		stats1.Body.Close()
-		
-		// Wait and read again
-		time.Sleep(500 * time.Millisecond)
-		
-		stats2, err := cli.ContainerStats(ctx, c.ID, false)
-		if err != nil {
+		if err := decoder.Decode(&v1); err != nil {
+			statsResp.Body.Close()
 			continue
 		}
 		
+		// Read second stat
 		var v2 container.StatsResponse
-		if err := json.NewDecoder(stats2.Body).Decode(&v2); err != nil {
-			stats2.Body.Close()
+		if err := decoder.Decode(&v2); err != nil {
+			statsResp.Body.Close()
 			continue
 		}
-		stats2.Body.Close()
+		statsResp.Body.Close()
 		
-		// CPU calculation with two readings
+		// CPU calculation with two readings from stream
 		cpuDelta := float64(v2.CPUStats.CPUUsage.TotalUsage - v1.CPUStats.CPUUsage.TotalUsage)
 		systemDelta := float64(v2.CPUStats.SystemUsage - v1.CPUStats.SystemUsage)
 		cpuPercent := 0.0
