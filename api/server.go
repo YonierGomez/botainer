@@ -50,6 +50,7 @@ func (s *Server) routes() {
 	api.HandleFunc("/containers/{id}/stop", s.handleStopContainer).Methods("POST")
 	api.HandleFunc("/containers/{id}/restart", s.handleRestartContainer).Methods("POST")
 	api.HandleFunc("/containers/{id}/logs", s.handleContainerLogs).Methods("GET")
+	api.HandleFunc("/containers/{id}/stats", s.handleContainerStats).Methods("GET")
 	
 	// Stats endpoint
 	api.HandleFunc("/stats", s.handleSystemStats).Methods("GET")

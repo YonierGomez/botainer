@@ -45,6 +45,9 @@ function App() {
   const [logs, setLogs] = useState<string>('')
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const [showStats, setShowStats] = useState(false)
+  const [stats, setStats] = useState<any>(null)
+  const [loadingStats, setLoadingStats] = useState(false)
 
   useEffect(() => {
     // Check if running in Telegram
@@ -159,6 +162,30 @@ function App() {
       setLogs('Error: ' + (err instanceof Error ? err.message : 'Unknown error'))
     } finally {
       setLoadingLogs(false)
+    }
+  }
+
+  const fetchStats = async (container: Container) => {
+    setSelectedContainer(container)
+    setShowStats(true)
+    setLoadingStats(true)
+    setStats(null)
+    
+    try {
+      const response = await fetch(`/api/containers/${container.Id}/stats`, {
+        headers: getAuthHeaders()
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        setStats(result.data)
+      } else {
+        setStats({ error: result.error || 'Failed to fetch stats' })
+      }
+    } catch (err) {
+      setStats({ error: err instanceof Error ? err.message : 'Unknown error' })
+    } finally {
+      setLoadingStats(false)
     }
   }
 
@@ -393,6 +420,12 @@ function App() {
                     {container.State === 'running' ? (
                       <>
                         <button
+                          onClick={() => fetchStats(container)}
+                          className="px-4 py-2 text-sm bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors shadow-lg whitespace-nowrap"
+                        >
+                          📊 Stats
+                        </button>
+                        <button
                           onClick={() => fetchLogs(container)}
                           className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg whitespace-nowrap"
                         >
@@ -434,6 +467,98 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* Stats Modal */}
+      {showStats && selectedContainer && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-gray-900 w-full sm:max-w-2xl sm:rounded-2xl shadow-2xl border border-gray-700">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-700">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📊</span>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Container Stats</h2>
+                  <p className="text-sm text-gray-400">{selectedContainer.Names[0]?.replace('/', '')}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowStats(false)}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Stats Content */}
+            <div className="p-6">
+              {loadingStats ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+                    <p className="mt-4 text-gray-400">Loading stats...</p>
+                  </div>
+                </div>
+              ) : stats?.error ? (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">⚠️</div>
+                  <p className="text-red-400">{stats.error}</p>
+                </div>
+              ) : stats ? (
+                <div className="space-y-6">
+                  {/* CPU */}
+                  <div>
+                    <div className="flex justify-between mb-2">
+                      <span className="text-gray-300 font-medium">CPU Usage</span>
+                      <span className="text-white font-bold">{stats.cpu_percent?.toFixed(2)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-800 rounded-full h-4 overflow-hidden">
+                      <div 
+                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-full transition-all duration-300"
+                        style={{ width: `${Math.min(stats.cpu_percent || 0, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Memory */}
+                  <div>
+                    <div className="flex justify-between mb-2">
+                      <span className="text-gray-300 font-medium">Memory Usage</span>
+                      <span className="text-white font-bold">
+                        {stats.memory_usage?.toFixed(0)} MB / {stats.memory_limit?.toFixed(0)} MB
+                        ({stats.memory_percent?.toFixed(1)}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-800 rounded-full h-4 overflow-hidden">
+                      <div 
+                        className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full transition-all duration-300"
+                        style={{ width: `${Math.min(stats.memory_percent || 0, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-700 flex gap-2">
+              <button
+                onClick={() => fetchStats(selectedContainer)}
+                className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors"
+              >
+                🔄 Refresh
+              </button>
+              <button
+                onClick={() => setShowStats(false)}
+                className="flex-1 px-4 py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Logs Modal */}
       {selectedContainer && (

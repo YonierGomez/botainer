@@ -140,3 +140,47 @@ func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sendJSON(w, http.StatusOK, info)
 }
+
+func (s *Server) handleContainerStats(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	
+	ctx := context.Background()
+	stats, err := s.docker.ContainerStats(ctx, id, false)
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer stats.Body.Close()
+	
+	var v container.StatsResponse
+	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
+		s.sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	
+	// Calculate CPU percentage
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+	cpuPercent := 0.0
+	if systemDelta > 0 && cpuDelta > 0 {
+		cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+	}
+	
+	// Calculate memory
+	memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024 // MB
+	memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024 // MB
+	memPercent := 0.0
+	if memLimit > 0 {
+		memPercent = (float64(v.MemoryStats.Usage) / float64(v.MemoryStats.Limit)) * 100.0
+	}
+	
+	result := map[string]interface{}{
+		"cpu_percent":    cpuPercent,
+		"memory_usage":   memUsage,
+		"memory_limit":   memLimit,
+		"memory_percent": memPercent,
+	}
+	
+	s.sendJSON(w, http.StatusOK, result)
+}
