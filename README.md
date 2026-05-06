@@ -31,6 +31,8 @@
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
+> **Note:** The Mini App (visual dashboard) is **completely optional**. The bot works perfectly without it using text commands only.
+
 ---
 
 ## Requirements

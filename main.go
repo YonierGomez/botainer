@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	botVersion     = "2.0.0"                      // Mini App release: Visual dashboard with dark theme
+	botVersion     = "2.0.1"                      // Mini App: Added stats, search, filters, logs viewer
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
