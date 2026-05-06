@@ -1,8 +1,10 @@
 FROM golang:alpine AS builder
 WORKDIR /build
 COPY go.mod go.sum* ./
-RUN go mod download
 COPY main.go ./
+COPY api/ ./api/
+RUN go mod tidy
+RUN go mod download
 RUN CGO_ENABLED=0 go build -o botainer main.go
 
 FROM alpine:latest

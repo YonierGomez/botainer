@@ -1,4 +1,4 @@
-module botainer
+module github.com/YonierGomez/botainer
 
 go 1.26
 
@@ -6,6 +6,8 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/gorilla/mux v1.8.1
+	github.com/gorilla/websocket v1.5.3
 )
 
 require (

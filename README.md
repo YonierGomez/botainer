@@ -22,8 +22,12 @@
 ![Alpine Linux](https://img.shields.io/badge/Alpine_Linux-0D597F?logo=alpinelinux&logoColor=white)
 ![Telegram](https://img.shields.io/badge/Telegram-26A5E4?logo=telegram&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?logo=docker&logoColor=white)
+![React](https://img.shields.io/badge/React_19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 
-Telegram bot written in Go to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, remote image tracking, Helm chart monitoring, and an interactive button interface.
+**Telegram bot + Mini App** to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, remote image tracking, Helm chart monitoring, and a **visual dashboard** with dark theme.
+
+🎨 **NEW in v2.0:** [Telegram Mini App](https://t.me/botainerbot) - Visual dashboard with real-time container management!
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
@@ -403,6 +407,155 @@ newgrp docker
 **Commands not showing in Telegram**
 
 Commands are registered automatically on startup. If they don't appear, restart the bot, wait 1–2 minutes, then type `/` in the chat.
+
+---
+
+## 11. Roadmap: Telegram Mini App (Coming Soon)
+
+We're planning to add a **Telegram Mini App** — a visual web interface that opens directly inside Telegram for a richer user experience.
+
+### What is a Mini App?
+
+A Mini App is a web application (HTML/CSS/JavaScript) that runs inside Telegram with access to special APIs. Think of it as having a full dashboard in your phone without leaving the chat.
+
+### Planned Features
+
+#### 📊 **Visual Dashboard**
+- Real-time container status with live updates
+- CPU, RAM, and disk usage graphs
+- Container health indicators and alerts
+- System overview with interactive charts
+
+#### 🎛️ **Advanced Container Management**
+- Drag-and-drop to reorder containers
+- Bulk operations (start/stop/restart multiple containers)
+- Quick filters (running, stopped, by image, by project)
+- Container grouping by Docker Compose project
+
+#### 📝 **Interactive Logs Viewer**
+- Live log streaming with syntax highlighting
+- Search and filter logs in real-time
+- Download logs with date range selection
+- Multi-container log aggregation
+
+#### 🔧 **Visual Container Creation**
+- Form-based container creation (no YAML needed)
+- Port mapping with conflict detection
+- Volume mounting with file browser
+- Environment variable editor with validation
+- Network selection with visual diagram
+
+#### 📈 **Resource Monitoring**
+- Historical resource usage charts (last 24h, 7d, 30d)
+- Per-container resource breakdown
+- Alerts configuration with visual thresholds
+- Export metrics as CSV/JSON
+
+#### 🔄 **Update Management**
+- Visual diff of image changes
+- Batch update with preview
+- Rollback history with one-click restore
+- Update scheduling (maintenance windows)
+
+#### 🗂️ **Template Library**
+- Browse and deploy pre-configured stacks
+- Save your own templates with screenshots
+- Share templates via link
+- One-click deployment from template
+
+#### 🌐 **Network Visualizer**
+- Interactive network topology diagram
+- Container connections and port mappings
+- Network creation and management
+- DNS resolution testing
+
+### Technical Architecture
+
+```
+┌─────────────────────────────────────────┐
+│   Telegram Mini App (Frontend)         │
+│   - React + TypeScript                  │
+│   - Telegram WebApp SDK                 │
+│   - Real-time updates via WebSocket    │
+└──────────────┬──────────────────────────┘
+               │ HTTPS
+               ▼
+┌─────────────────────────────────────────┐
+│   Botainer Backend (Go)                 │
+│   - REST API for Mini App               │
+│   - WebSocket for live updates          │
+│   - Telegram auth validation            │
+│   - Docker API integration              │
+└──────────────┬──────────────────────────┘
+               │ Unix Socket
+               ▼
+┌─────────────────────────────────────────┐
+│   Docker Engine                         │
+└─────────────────────────────────────────┘
+```
+
+### Why a Mini App?
+
+**Current (Bot Commands)**
+- ✅ Works everywhere (phone, desktop, web)
+- ✅ No installation needed
+- ✅ Simple text-based interface
+- ❌ Limited interactivity
+- ❌ No real-time updates
+- ❌ Hard to visualize complex data
+
+**Future (Mini App)**
+- ✅ All benefits of bot commands
+- ✅ Rich visual interface
+- ✅ Real-time updates
+- ✅ Interactive charts and graphs
+- ✅ Better for complex operations
+- ✅ Still inside Telegram (no external apps)
+
+### Access Methods
+
+The Mini App will be accessible via:
+1. **Menu button** — Quick access from chat menu
+2. **Inline button** — Launch from bot messages
+3. **Direct link** — `https://t.me/botainerbot/app`
+4. **Attachment menu** — Available in any chat
+
+### Development Phases
+
+**Phase 1: Foundation** (v2.0)
+- Basic dashboard with container list
+- Start/stop/restart actions
+- Real-time status updates
+- Logs viewer
+
+**Phase 2: Monitoring** (v2.1)
+- Resource usage charts
+- Historical data
+- Alerts configuration
+- Export metrics
+
+**Phase 3: Advanced Management** (v2.2)
+- Visual container creation
+- Bulk operations
+- Template library
+- Network visualizer
+
+**Phase 4: Collaboration** (v2.3)
+- Multi-user access control
+- Audit log viewer
+- Shared templates
+- Team notifications
+
+### Timeline
+
+- **Q2 2026**: Planning and design
+- **Q3 2026**: Phase 1 development
+- **Q4 2026**: Beta testing
+- **Q1 2027**: Public release
+
+### Feedback Welcome
+
+Have ideas for the Mini App? Open an issue on GitHub or join our [Telegram channel](https://t.me/botainer_news) to share your thoughts!
 
 ---
 

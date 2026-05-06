@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/YonierGomez/botainer/api"
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -28,9 +29,9 @@ import (
 )
 
 const (
-	botVersion     = "1.3.1"                      // Bug fixes: CPU stats, memory display, notifications
+	botVersion     = "2.0.0"                      // Mini App release: Visual dashboard with dark theme
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
-	configFile     = "/data/config.json" // Persistence file
+	configFile     = "/data/config.json"          // Persistence file
 )
 
 var (
@@ -4017,6 +4018,14 @@ func main() {
 		log.Fatal("Error connecting to Docker:", err)
 	}
 	defer cli.Close()
+
+	// Start API server for Mini App
+	apiServer := api.NewServer(cli)
+	go func() {
+		if err := apiServer.Start("8080"); err != nil {
+			log.Printf("API server error: %v", err)
+		}
+	}()
 
 	// Validate Docker Compose availability
 	if err := validateComposeSetup(); err != nil {
