@@ -774,21 +774,38 @@ func handlePS(chatID int64) {
 			project := inspect.Config.Labels["com.docker.compose.project"]
 
 			cpu, mem := "N/A", "N/A"
-			statsResp, err := cli.ContainerStats(ctx, c.ID, false)
+			
+			// Read stats twice to get proper delta
+			statsResp1, err := cli.ContainerStats(ctx, c.ID, false)
 			if err == nil {
-				var v container.StatsResponse
-				if json.NewDecoder(statsResp.Body).Decode(&v) == nil {
-					cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-					systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
-					if systemDelta > 0 && cpuDelta > 0 {
-						cpuPercent := (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
-						cpu = fmt.Sprintf("%.2f%%", cpuPercent)
+				var v1 container.StatsResponse
+				json.NewDecoder(statsResp1.Body).Decode(&v1)
+				statsResp1.Body.Close()
+				
+				// Wait a bit and read again
+				time.Sleep(500 * time.Millisecond)
+				
+				statsResp2, err := cli.ContainerStats(ctx, c.ID, false)
+				if err == nil {
+					var v2 container.StatsResponse
+					if json.NewDecoder(statsResp2.Body).Decode(&v2) == nil {
+						cpuDelta := float64(v2.CPUStats.CPUUsage.TotalUsage - v1.CPUStats.CPUUsage.TotalUsage)
+						systemDelta := float64(v2.CPUStats.SystemUsage - v1.CPUStats.SystemUsage)
+						numCPU := len(v2.CPUStats.CPUUsage.PercpuUsage)
+						
+						if systemDelta > 0 && numCPU > 0 {
+							cpuPercent := (cpuDelta / systemDelta) * float64(numCPU) * 100.0
+							cpu = fmt.Sprintf("%.1f%%", cpuPercent)
+						} else {
+							cpu = "0.0%"
+						}
+						
+						memUsage := float64(v2.MemoryStats.Usage) / 1024 / 1024
+						memLimit := float64(v2.MemoryStats.Limit) / 1024 / 1024
+						mem = fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit)
 					}
-					memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-					memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
-					mem = fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit)
+					statsResp2.Body.Close()
 				}
-				statsResp.Body.Close()
 			}
 
 			results <- result{name, icon, c.Status, c.Image, project, cpu, mem}
@@ -5221,31 +5238,47 @@ func handleAlerts(chatID int64) {
 		hasRunning = true
 		name := strings.TrimPrefix(c.Names[0], "/")
 		
-		stats, err := cli.ContainerStats(ctx, c.ID, false)
+		// Read stats twice for accurate CPU delta
+		stats1, err := cli.ContainerStats(ctx, c.ID, false)
 		if err != nil {
 			text += fmt.Sprintf("❌ `%s` - Error obteniendo stats\n\n", name)
 			continue
 		}
 		
-		var v container.StatsResponse
-		if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
-			stats.Body.Close()
+		var v1 container.StatsResponse
+		if err := json.NewDecoder(stats1.Body).Decode(&v1); err != nil {
+			stats1.Body.Close()
 			continue
 		}
-		stats.Body.Close()
+		stats1.Body.Close()
 		
-		// CPU calculation
-		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+		// Wait and read again
+		time.Sleep(500 * time.Millisecond)
+		
+		stats2, err := cli.ContainerStats(ctx, c.ID, false)
+		if err != nil {
+			continue
+		}
+		
+		var v2 container.StatsResponse
+		if err := json.NewDecoder(stats2.Body).Decode(&v2); err != nil {
+			stats2.Body.Close()
+			continue
+		}
+		stats2.Body.Close()
+		
+		// CPU calculation with two readings
+		cpuDelta := float64(v2.CPUStats.CPUUsage.TotalUsage - v1.CPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(v2.CPUStats.SystemUsage - v1.CPUStats.SystemUsage)
 		cpuPercent := 0.0
-		numCPU := len(v.CPUStats.CPUUsage.PercpuUsage)
+		numCPU := len(v2.CPUStats.CPUUsage.PercpuUsage)
 		if systemDelta > 0 && numCPU > 0 {
 			cpuPercent = (cpuDelta / systemDelta) * float64(numCPU) * 100
 		}
 		
 		// Memory calculation
-		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
+		memUsage := float64(v2.MemoryStats.Usage) / 1024 / 1024
+		memLimit := float64(v2.MemoryStats.Limit) / 1024 / 1024
 		memPercent := 0.0
 		if memLimit > 0 {
 			memPercent = (memUsage / memLimit) * 100
