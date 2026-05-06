@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+// Version: 2.0.1 - Fixed auto-refresh outside Telegram
+
 declare global {
   interface Window {
     Telegram?: {
