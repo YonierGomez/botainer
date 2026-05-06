@@ -2173,6 +2173,32 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	}
+	
+	// Scan callback
+	if strings.HasPrefix(query.Data, "scan:") {
+		containerName := strings.TrimPrefix(query.Data, "scan:")
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🔍 Escaneando *%s*...", containerName))
+		
+		go func() {
+			ctx := context.Background()
+			inspect, err := cli.ContainerInspect(ctx, containerName)
+			if err != nil {
+				sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+				return
+			}
+			
+			imageName := inspect.Config.Image
+			result, err := scanImage(imageName)
+			if err != nil {
+				sendMessageWithClose(chatID, fmt.Sprintf("❌ Error al escanear:\n%v\n\n💡 Instala Trivy: `docker run aquasec/trivy`", err))
+				return
+			}
+			
+			sendMessageWithClose(chatID, result)
+		}()
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
 
 	if err != nil {
 		out = "❌ Error: " + err.Error()
@@ -4053,6 +4079,8 @@ func main() {
 				if len(commandHistory[userID]) > 50 {
 					commandHistory[userID] = commandHistory[userID][1:]
 				}
+				// Add to audit log
+				addAudit(userID, update.Message.Command(), update.Message.CommandArguments(), true)
 			}
 
 			// Delete command message
@@ -5041,11 +5069,7 @@ func handleAlerts(chatID int64) {
 	ctx := context.Background()
 	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
 	
-	text := "⚠️ *Monitoreo de Recursos*\n\n"
-	text += "El bot monitorea automáticamente el uso de recursos cada 30 segundos.\n\n"
-	
-	// Show current resource usage
-	text += "📊 *Estado Actual:*\n\n"
+	text := "⚠️ *Uso de Recursos*\n\n"
 	
 	for _, c := range containers {
 		if c.State != "running" {
@@ -5056,17 +5080,15 @@ func handleAlerts(chatID int64) {
 		if err != nil {
 			continue
 		}
-		defer stats.Body.Close()
 		
 		var v container.StatsResponse
-		if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
-			continue
-		}
+		json.NewDecoder(stats.Body).Decode(&v)
+		stats.Body.Close()
 		
 		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
 		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
 		cpuPercent := 0.0
-		if systemDelta > 0 {
+		if systemDelta > 0 && len(v.CPUStats.CPUUsage.PercpuUsage) > 0 {
 			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100
 		}
 		
@@ -5085,14 +5107,11 @@ func handleAlerts(chatID int64) {
 			icon, name, cpuPercent, memUsage, memPercent)
 	}
 	
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
-	bot.Send(msg)
+	if text == "⚠️ *Uso de Recursos*\n\n" {
+		text += "Sin contenedores corriendo"
+	}
+	
+	sendMessageWithClose(chatID, text)
 }
 
 // Handle /healthchecks command
@@ -5281,60 +5300,61 @@ func scanImage(imageName string) (string, error) {
 func handleScan(chatID int64) {
 	ctx := context.Background()
 	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
-	images, _ := cli.ImageList(ctx, image.ListOptions{})
 	
-	text := "🔒 *Imágenes del Sistema*\n\n"
-	text += "Lista de imágenes Docker locales:\n\n"
+	text := "🔒 *Escanear Vulnerabilidades*\n\nSelecciona un contenedor:"
 	
-	for _, img := range images {
-		if len(img.RepoTags) == 0 {
-			continue
-		}
-		tag := img.RepoTags[0]
-		sizeMB := float64(img.Size) / 1024 / 1024
-		
-		// Count containers using this image
-		count := 0
-		for _, c := range containers {
-			if c.ImageID == img.ID {
-				count++
-			}
-		}
-		
-		text += fmt.Sprintf("📦 `%s`\n   Tamaño: %.1f MB | Contenedores: %d\n\n", tag, sizeMB, count)
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 "+name, "scan:"+name),
+		))
 	}
 	
-	text += "\n💡 _Tip: Usa Trivy para escanear vulnerabilidades:_\n`trivy image <nombre>`"
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
 	
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	bot.Send(msg)
 }
 
 // Handle /webhooks command
 func handleWebhooks(chatID int64) {
 	text := "🔗 *Webhooks*\n\n"
-	text += "Los webhooks permiten enviar notificaciones a servicios externos cuando ocurren eventos.\n\n"
-	text += "📋 *Eventos disponibles:*\n"
-	text += "• Container started\n"
-	text += "• Container stopped\n"
-	text += "• Container crashed\n"
-	text += "• Image updated\n\n"
-	text += "💡 _Configura webhooks editando el archivo de configuración_"
 	
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
-	bot.Send(msg)
+	if len(webhooks) == 0 {
+		text += "📋 Sin webhooks configurados\n\n"
+		text += "*Cómo configurar:*\n"
+		text += "Edita `/data/config.json` y agrega:\n\n"
+		text += "```json\n"
+		text += `"webhooks": {
+  "discord": {
+    "url": "https://discord.com/api/webhooks/...",
+    "events": ["container.start", "container.stop"],
+    "headers": {},
+    "enabled": true
+  }
+}` + "\n```\n\n"
+		text += "*Eventos disponibles:*\n"
+		text += "• `container.start`\n"
+		text += "• `container.stop`\n"
+		text += "• `container.die`\n"
+		text += "• `image.update`"
+	} else {
+		text += "✅ *Webhooks configurados:*\n\n"
+		for name, wh := range webhooks {
+			status := "❌"
+			if wh.Enabled {
+				status = "✅"
+			}
+			text += fmt.Sprintf("%s `%s`\n   URL: %s\n   Eventos: %d\n\n", status, name, wh.URL, len(wh.Events))
+		}
+	}
+	
+	sendMessageWithClose(chatID, text)
 }
 
 // Send webhook notification
@@ -5417,23 +5437,23 @@ func handlePolicies(chatID int64) {
 
 // Handle /registries command
 func handleRegistries(chatID int64) {
-	text := "📦 *Registries de Imágenes*\n\n"
-	text += "Los registries privados permiten usar imágenes de repositorios privados.\n\n"
-	text += "📋 *Registries soportados:*\n"
-	text += "• Docker Hub (hub.docker.com)\n"
-	text += "• GitHub Container Registry (ghcr.io)\n"
-	text += "• GitLab Container Registry\n"
-	text += "• Registries privados\n\n"
-	text += "💡 _Configura autenticación con `docker login`_"
+	text := "📦 *Registries Privados*\n\n"
 	
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
-	bot.Send(msg)
+	text += "*Registries soportados:*\n"
+	text += "• Docker Hub (docker.io)\n"
+	text += "• GitHub (ghcr.io)\n"
+	text += "• GitLab (registry.gitlab.com)\n"
+	text += "• Registries privados\n\n"
+	
+	text += "*Cómo autenticar:*\n"
+	text += "```bash\n"
+	text += "docker login ghcr.io\n"
+	text += "docker login registry.example.com\n"
+	text += "```\n\n"
+	
+	text += "💡 _Las credenciales se guardan en el host_"
+	
+	sendMessageWithClose(chatID, text)
 }
 
 // Handle /cleanup command
@@ -5504,31 +5524,26 @@ func handlePorts(chatID int64) {
 	ctx := context.Background()
 	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
 	
-	text := "🔌 *Gestión de Puertos*\n\n"
+	text := "🔌 *Puertos Expuestos*\n\n"
 	
-	usedPorts := make(map[string]string)
+	seen := make(map[string]bool)
 	
 	for _, c := range containers {
 		name := strings.TrimPrefix(c.Names[0], "/")
 		for _, port := range c.Ports {
 			if port.PublicPort > 0 {
-				portStr := fmt.Sprintf("%d", port.PublicPort)
-				usedPorts[portStr] = name
-				text += fmt.Sprintf("• `%d` → `%s` (%s)\n", port.PublicPort, name, port.Type)
+				key := fmt.Sprintf("%d-%s-%s", port.PublicPort, name, port.Type)
+				if !seen[key] {
+					seen[key] = true
+					text += fmt.Sprintf("• `%d` → `%s` (%s)\n", port.PublicPort, name, port.Type)
+				}
 			}
 		}
 	}
 	
-	if len(usedPorts) == 0 {
+	if len(seen) == 0 {
 		text += "Sin puertos expuestos"
 	}
 	
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
-	bot.Send(msg)
+	sendMessageWithClose(chatID, text)
 }
