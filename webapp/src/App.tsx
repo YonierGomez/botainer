@@ -48,7 +48,8 @@ function App() {
     // Check if running in Telegram
     if (!window.Telegram?.WebApp?.initData) {
       setLoading(false)
-      setError('Please open this app from Telegram bot')
+      setError('⚠️ Please open from Telegram\n\nGo to @botainerbot → 🐳 Dashboard')
+      // Don't start auto-refresh if not in Telegram
       return
     }
 
@@ -58,7 +59,7 @@ function App() {
     }
     fetchContainers()
 
-    // Auto-refresh every 5 seconds (silent)
+    // Auto-refresh every 5 seconds (silent) - only in Telegram
     const interval = setInterval(() => fetchContainers(true), 5000)
     return () => clearInterval(interval)
   }, [])
