@@ -774,33 +774,19 @@ func handlePS(chatID int64) {
 			project := inspect.Config.Labels["com.docker.compose.project"]
 
 			cpu, mem := "N/A", "N/A"
-			
-			// Use stream mode to get accurate stats
-			statsResp, err := cli.ContainerStats(ctx, c.ID, true)
+			statsResp, err := cli.ContainerStats(ctx, c.ID, false)
 			if err == nil {
-				decoder := json.NewDecoder(statsResp.Body)
-				
-				// Read first stat
-				var v1 container.StatsResponse
-				if decoder.Decode(&v1) == nil {
-					// Read second stat
-					var v2 container.StatsResponse
-					if decoder.Decode(&v2) == nil {
-						cpuDelta := float64(v2.CPUStats.CPUUsage.TotalUsage - v1.CPUStats.CPUUsage.TotalUsage)
-						systemDelta := float64(v2.CPUStats.SystemUsage - v1.CPUStats.SystemUsage)
-						numCPU := len(v2.CPUStats.CPUUsage.PercpuUsage)
-						
-						if systemDelta > 0 && numCPU > 0 {
-							cpuPercent := (cpuDelta / systemDelta) * float64(numCPU) * 100.0
-							cpu = fmt.Sprintf("%.1f%%", cpuPercent)
-						} else {
-							cpu = "0.0%"
-						}
-						
-						memUsage := float64(v2.MemoryStats.Usage) / 1024 / 1024
-						memLimit := float64(v2.MemoryStats.Limit) / 1024 / 1024
-						mem = fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit)
+				var v container.StatsResponse
+				if json.NewDecoder(statsResp.Body).Decode(&v) == nil {
+					cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+					systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+					if systemDelta > 0 && cpuDelta > 0 {
+						cpuPercent := (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+						cpu = fmt.Sprintf("%.1f%%", cpuPercent)
 					}
+					memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
+					memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
+					mem = fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit)
 				}
 				statsResp.Body.Close()
 			}
@@ -5235,42 +5221,30 @@ func handleAlerts(chatID int64) {
 		hasRunning = true
 		name := strings.TrimPrefix(c.Names[0], "/")
 		
-		// Use stream mode for accurate CPU stats
-		statsResp, err := cli.ContainerStats(ctx, c.ID, true)
+		statsResp, err := cli.ContainerStats(ctx, c.ID, false)
 		if err != nil {
 			text += fmt.Sprintf("❌ `%s` - Error obteniendo stats\n\n", name)
 			continue
 		}
 		
-		decoder := json.NewDecoder(statsResp.Body)
-		
-		// Read first stat
-		var v1 container.StatsResponse
-		if err := decoder.Decode(&v1); err != nil {
-			statsResp.Body.Close()
-			continue
-		}
-		
-		// Read second stat
-		var v2 container.StatsResponse
-		if err := decoder.Decode(&v2); err != nil {
+		var v container.StatsResponse
+		if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
 			statsResp.Body.Close()
 			continue
 		}
 		statsResp.Body.Close()
 		
-		// CPU calculation with two readings from stream
-		cpuDelta := float64(v2.CPUStats.CPUUsage.TotalUsage - v1.CPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(v2.CPUStats.SystemUsage - v1.CPUStats.SystemUsage)
+		// CPU calculation using PreCPUStats
+		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
 		cpuPercent := 0.0
-		numCPU := len(v2.CPUStats.CPUUsage.PercpuUsage)
-		if systemDelta > 0 && numCPU > 0 {
-			cpuPercent = (cpuDelta / systemDelta) * float64(numCPU) * 100
+		if systemDelta > 0 && cpuDelta > 0 {
+			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
 		}
 		
 		// Memory calculation
-		memUsage := float64(v2.MemoryStats.Usage) / 1024 / 1024
-		memLimit := float64(v2.MemoryStats.Limit) / 1024 / 1024
+		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
+		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
 		memPercent := 0.0
 		if memLimit > 0 {
 			memPercent = (memUsage / memLimit) * 100
