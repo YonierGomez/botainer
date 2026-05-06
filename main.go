@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	botVersion     = "1.3.0"                      // Major feature release: alerts, monitoring, security, networking
+	botVersion     = "1.3.1"                      // Bug fixes: CPU stats, memory display, notifications
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json" // Persistence file
 )
