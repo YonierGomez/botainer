@@ -787,9 +787,11 @@ func handlePS(chatID int64) {
 						numCPU = uint32(len(v.CPUStats.CPUUsage.PercpuUsage))
 					}
 					
-					if systemDelta > 0 && cpuDelta > 0 && numCPU > 0 {
+					if systemDelta > 0 && numCPU > 0 {
 						cpuPercent := (cpuDelta / systemDelta) * float64(numCPU) * 100.0
 						cpu = fmt.Sprintf("%.1f%%", cpuPercent)
+					} else {
+						cpu = "0.0%"
 					}
 					
 					memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
@@ -5252,7 +5254,7 @@ func handleAlerts(chatID int64) {
 		}
 		
 		cpuPercent := 0.0
-		if systemDelta > 0 && cpuDelta > 0 && numCPU > 0 {
+		if systemDelta > 0 && numCPU > 0 {
 			cpuPercent = (cpuDelta / systemDelta) * float64(numCPU) * 100.0
 		}
 		
