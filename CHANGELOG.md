@@ -1,5 +1,62 @@
 # Botainer Mini App - Changelog
 
+## v2.0.1 - Mini App Enhancements (2026-05-06)
+
+### 🎨 New Features
+
+#### Container Stats
+- ✅ Real-time CPU and memory usage display
+- ✅ Beautiful gradient progress bars (blue-purple for CPU, green-teal for RAM)
+- ✅ Shows MB used/limit and percentages
+- ✅ Refresh button for live updates
+- ✅ Only available for running containers
+
+#### Search & Filters (Enhanced)
+- ✅ Search bar to filter by container name or image
+- ✅ Filter buttons: All, Running, Stopped
+- ✅ Live counter updates on filter buttons
+- ✅ Clear filters button when no results
+
+#### Logs Viewer (Enhanced)
+- ✅ View last 100 lines of container logs
+- ✅ Full-screen modal with syntax highlighting
+- ✅ Refresh button to reload logs
+- ✅ Works for both running and stopped containers
+
+#### Auto-Refresh
+- ✅ Container list updates every 5 seconds automatically
+- ✅ Silent background updates (no loading flicker)
+- ✅ Visual indicator (pulsing green dot)
+- ✅ Manual refresh button available
+
+### 🔒 Security Improvements
+
+- ✅ Fixed JSON content-type in auth middleware
+- ✅ Better error handling for non-Telegram access
+- ✅ No-cache headers to prevent stale content
+- ✅ Stops auto-refresh when not in Telegram
+
+### 🐛 Bug Fixes
+
+- Fixed "Unexpected token" JSON parse errors
+- Fixed auto-refresh causing errors outside Telegram
+- Fixed cache issues in Telegram WebView
+- Removed HTML parse mode from config
+- Better error messages
+
+### 📝 Documentation
+
+- Added note that Mini App is completely optional
+- Updated README with clearer instructions
+- Added security documentation
+
+### 📊 Stats
+
+- **New endpoints:** 1 (`/api/containers/:id/stats`)
+- **New features:** 4 major
+- **Bug fixes:** 5
+- **Commits:** 15+
+
 ## v2.0.0 - Telegram Mini App Release (2026-05-06)
 
 ### 🎨 New Features
