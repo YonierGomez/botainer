@@ -4168,6 +4168,29 @@ func main() {
 				} else {
 					go handleSearch(chatID, update.Message.CommandArguments())
 				}
+			// Phase 1
+			case "alerts":
+				go handleAlerts(chatID)
+			case "healthchecks":
+				go handleHealthChecks(chatID)
+			case "reports":
+				go handleReports(chatID)
+			// Phase 3
+			case "audit":
+				go handleAudit(chatID)
+			case "scan":
+				go handleScan(chatID)
+			case "webhooks":
+				go handleWebhooks(chatID)
+			case "policies":
+				go handlePolicies(chatID)
+			// Phase 4
+			case "registries":
+				go handleRegistries(chatID)
+			case "cleanup":
+				go handleCleanup(chatID)
+			case "ports":
+				go handlePorts(chatID)
 			}
 		} else if update.CallbackQuery != nil {
 			go handleCallback(update.CallbackQuery)
@@ -5016,86 +5039,109 @@ func sendScheduledReports() {
 // Handle /alerts command
 func handleAlerts(chatID int64) {
 	ctx := context.Background()
-	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
 	
-	text := "⚠️ *Alertas de Recursos*\n\nConfigura umbrales de CPU/RAM para recibir notificaciones.\n\n"
+	text := "⚠️ *Monitoreo de Recursos*\n\n"
+	text += "El bot monitorea automáticamente el uso de recursos cada 30 segundos.\n\n"
 	
-	if len(resourceAlerts) == 0 {
-		text += "📋 Sin alertas configuradas"
-	} else {
-		text += "✅ Alertas activas:\n"
-		for name, alert := range resourceAlerts {
-			status := "❌"
-			if alert.Enabled {
-				status = "✅"
-			}
-			text += fmt.Sprintf("%s `%s` - CPU: %.0f%%, RAM: %.0f%%\n", status, name, alert.CPUThreshold, alert.RAMThreshold)
+	// Show current resource usage
+	text += "📊 *Estado Actual:*\n\n"
+	
+	for _, c := range containers {
+		if c.State != "running" {
+			continue
 		}
+		name := strings.TrimPrefix(c.Names[0], "/")
+		stats, err := cli.ContainerStats(ctx, c.ID, false)
+		if err != nil {
+			continue
+		}
+		defer stats.Body.Close()
+		
+		var v container.StatsResponse
+		if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
+			continue
+		}
+		
+		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+		cpuPercent := 0.0
+		if systemDelta > 0 {
+			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100
+		}
+		
+		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
+		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
+		memPercent := (memUsage / memLimit) * 100
+		
+		icon := "🟢"
+		if cpuPercent > 80 || memPercent > 80 {
+			icon = "🔴"
+		} else if cpuPercent > 50 || memPercent > 50 {
+			icon = "🟡"
+		}
+		
+		text += fmt.Sprintf("%s `%s`\n   CPU: %.1f%% | RAM: %.0fMB (%.1f%%)\n\n", 
+			icon, name, cpuPercent, memUsage, memPercent)
 	}
-	
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for i := 0; i < len(containers); i += 2 {
-		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
-		row := []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name1, "alert_config:"+name1),
-		}
-		if i+1 < len(containers) {
-			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name2, "alert_config:"+name2))
-		}
-		rows = append(rows, row)
-	}
-	
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-	))
 	
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
 	bot.Send(msg)
 }
 
 // Handle /healthchecks command
 func handleHealthChecks(chatID int64) {
 	ctx := context.Background()
-	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
 	
-	text := "🏥 *Health Checks*\n\nConfigura verificaciones HTTP/TCP para tus contenedores.\n\n"
+	text := "🏥 *Estado de Contenedores*\n\n"
+	text += "Verificación del estado de salud de todos los contenedores:\n\n"
 	
-	if len(healthChecks) == 0 {
-		text += "📋 Sin health checks configurados"
-	} else {
-		text += "✅ Health checks activos:\n"
-		for name, check := range healthChecks {
-			status := "❌"
-			if check.Enabled {
-				status = "✅"
+	running := 0
+	stopped := 0
+	unhealthy := 0
+	
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		icon := "🟢"
+		status := "Corriendo"
+		
+		if c.State == "exited" {
+			icon = "🔴"
+			status = "Detenido"
+			stopped++
+		} else if c.State == "running" {
+			running++
+			// Check if container has health status
+			inspect, err := cli.ContainerInspect(ctx, c.ID)
+			if err == nil && inspect.State.Health != nil {
+				if inspect.State.Health.Status == "unhealthy" {
+					icon = "🟡"
+					status = "No saludable"
+					unhealthy++
+				}
 			}
-			text += fmt.Sprintf("%s `%s` - %s: %s\n", status, name, check.Type, check.Target)
 		}
+		
+		text += fmt.Sprintf("%s `%s` - %s\n", icon, name, status)
 	}
 	
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for i := 0; i < len(containers); i += 2 {
-		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
-		row := []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name1, "health_config:"+name1),
-		}
-		if i+1 < len(containers) {
-			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name2, "health_config:"+name2))
-		}
-		rows = append(rows, row)
-	}
-	
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-	))
+	text += fmt.Sprintf("\n📊 *Resumen:*\n🟢 Corriendo: %d\n🔴 Detenidos: %d\n🟡 No saludables: %d", 
+		running, stopped, unhealthy)
 	
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
 	bot.Send(msg)
 }
 
@@ -5234,62 +5280,60 @@ func scanImage(imageName string) (string, error) {
 // Handle /scan command
 func handleScan(chatID int64) {
 	ctx := context.Background()
-	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	containers, _ := cli.ContainerList(ctx, container.ListOptions{All: true})
+	images, _ := cli.ImageList(ctx, image.ListOptions{})
 	
-	text := "🔒 *Escaneo de Vulnerabilidades*\n\nSelecciona un contenedor para escanear su imagen:"
+	text := "🔒 *Imágenes del Sistema*\n\n"
+	text += "Lista de imágenes Docker locales:\n\n"
 	
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for i := 0; i < len(containers); i += 2 {
-		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
-		row := []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("🔍 "+name1, "scan:"+name1),
+	for _, img := range images {
+		if len(img.RepoTags) == 0 {
+			continue
 		}
-		if i+1 < len(containers) {
-			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData("🔍 "+name2, "scan:"+name2))
+		tag := img.RepoTags[0]
+		sizeMB := float64(img.Size) / 1024 / 1024
+		
+		// Count containers using this image
+		count := 0
+		for _, c := range containers {
+			if c.ImageID == img.ID {
+				count++
+			}
 		}
-		rows = append(rows, row)
+		
+		text += fmt.Sprintf("📦 `%s`\n   Tamaño: %.1f MB | Contenedores: %d\n\n", tag, sizeMB, count)
 	}
 	
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-	))
+	text += "\n💡 _Tip: Usa Trivy para escanear vulnerabilidades:_\n`trivy image <nombre>`"
 	
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
 	bot.Send(msg)
 }
 
 // Handle /webhooks command
 func handleWebhooks(chatID int64) {
-	text := "🔗 *Webhooks*\n\nConfigura webhooks para recibir notificaciones en servicios externos.\n\n"
+	text := "🔗 *Webhooks*\n\n"
+	text += "Los webhooks permiten enviar notificaciones a servicios externos cuando ocurren eventos.\n\n"
+	text += "📋 *Eventos disponibles:*\n"
+	text += "• Container started\n"
+	text += "• Container stopped\n"
+	text += "• Container crashed\n"
+	text += "• Image updated\n\n"
+	text += "💡 _Configura webhooks editando el archivo de configuración_"
 	
-	if len(webhooks) == 0 {
-		text += "📋 Sin webhooks configurados"
-	} else {
-		text += "✅ Webhooks activos:\n"
-		for name, wh := range webhooks {
-			status := "❌"
-			if wh.Enabled {
-				status = "✅"
-			}
-			text += fmt.Sprintf("%s `%s` - %d eventos\n", status, name, len(wh.Events))
-		}
-	}
-	
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar", "webhook_add"),
-		),
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 		),
 	)
-	
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
 	bot.Send(msg)
 }
 
@@ -5333,48 +5377,32 @@ func sendWebhook(event, target string) {
 
 // Handle /policies command
 func handlePolicies(chatID int64) {
-	ctx := context.Background()
-	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	text := "⚙️ *Políticas de Actualización*\n\n"
+	text += "Las políticas de actualización permiten automatizar las actualizaciones de contenedores.\n\n"
+	text += "📋 *Configuración actual:*\n"
 	
-	text := "⚙️ *Políticas de Actualización*\n\nConfigura cuándo y cómo actualizar contenedores.\n\n"
-	
-	if len(updatePolicies) == 0 {
-		text += "📋 Sin políticas configuradas"
+	if len(autoUpdateContainers) == 0 {
+		text += "Sin políticas configuradas\n\n"
 	} else {
-		text += "✅ Políticas activas:\n"
-		for name, policy := range updatePolicies {
+		for name, enabled := range autoUpdateContainers {
 			status := "❌"
-			if policy.Enabled {
+			if enabled {
 				status = "✅"
 			}
-			auto := ""
-			if policy.AutoApprove {
-				auto = " (auto)"
-			}
-			text += fmt.Sprintf("%s `%s`%s\n", status, name, auto)
+			text += fmt.Sprintf("%s `%s`\n", status, name)
 		}
+		text += "\n"
 	}
 	
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for i := 0; i < len(containers); i += 2 {
-		name1 := strings.TrimPrefix(containers[i].Names[0], "/")
-		row := []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name1, "policy_config:"+name1),
-		}
-		if i+1 < len(containers) {
-			name2 := strings.TrimPrefix(containers[i+1].Names[0], "/")
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData("⚙️ "+name2, "policy_config:"+name2))
-		}
-		rows = append(rows, row)
-	}
-	
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-	))
+	text += "💡 _Usa /autoupdate para configurar actualizaciones automáticas por contenedor_"
 	
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
 	bot.Send(msg)
 }
 
@@ -5389,33 +5417,22 @@ func handlePolicies(chatID int64) {
 
 // Handle /registries command
 func handleRegistries(chatID int64) {
-	text := "📦 *Registries Privados*\n\nGestiona conexiones a registries de imágenes.\n\n"
+	text := "📦 *Registries de Imágenes*\n\n"
+	text += "Los registries privados permiten usar imágenes de repositorios privados.\n\n"
+	text += "📋 *Registries soportados:*\n"
+	text += "• Docker Hub (hub.docker.com)\n"
+	text += "• GitHub Container Registry (ghcr.io)\n"
+	text += "• GitLab Container Registry\n"
+	text += "• Registries privados\n\n"
+	text += "💡 _Configura autenticación con `docker login`_"
 	
-	if len(registries) == 0 {
-		text += "📋 Sin registries configurados"
-	} else {
-		text += "✅ Registries configurados:\n"
-		for name, reg := range registries {
-			status := "❌"
-			if reg.Enabled {
-				status = "✅"
-			}
-			text += fmt.Sprintf("%s `%s` - %s\n", status, name, reg.URL)
-		}
-	}
-	
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("➕ Agregar", "registry_add"),
-		),
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 		),
 	)
-	
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
 	bot.Send(msg)
 }
 
@@ -5472,9 +5489,6 @@ func handleCleanup(chatID int64) {
 			tgbotapi.NewInlineKeyboardButtonData("🗑️ Limpiar todo", "cleanup_all"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Ver detalles", "cleanup_details"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 		),
 	)
@@ -5509,17 +5523,12 @@ func handlePorts(chatID int64) {
 		text += "Sin puertos expuestos"
 	}
 	
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Detectar conflictos", "ports_conflicts"),
-		),
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 		),
 	)
-	
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
 	bot.Send(msg)
 }
