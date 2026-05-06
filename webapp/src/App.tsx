@@ -46,10 +46,20 @@ function App() {
     fetchContainers()
   }, [])
 
+  const getAuthHeaders = () => {
+    const initData = window.Telegram?.WebApp?.initData || ''
+    return {
+      'Content-Type': 'application/json',
+      'X-Telegram-Init-Data': initData
+    }
+  }
+
   const fetchContainers = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/containers')
+      const response = await fetch('/api/containers', {
+        headers: getAuthHeaders()
+      })
       const result = await response.json()
       
       if (result.success) {
@@ -68,6 +78,7 @@ function App() {
     try {
       const response = await fetch(`/api/containers/${id}/${action}`, {
         method: 'POST',
+        headers: getAuthHeaders()
       })
       const result = await response.json()
       
@@ -108,10 +119,10 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-800 flex items-center justify-center p-4">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent"></div>
-          <p className="mt-4 text-gray-700 font-medium">Loading containers...</p>
+          <p className="mt-4 text-gray-300 font-medium">Loading containers...</p>
         </div>
       </div>
     )
@@ -119,11 +130,11 @@ function App() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-red-50 to-pink-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-800 flex items-center justify-center p-4">
+        <div className="bg-gray-800 rounded-2xl shadow-xl p-8 max-w-md text-center border border-gray-700">
           <div className="text-6xl mb-4">⚠️</div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Error</h2>
-          <p className="text-red-600 mb-6">{error}</p>
+          <h2 className="text-xl font-bold text-white mb-2">Error</h2>
+          <p className="text-red-400 mb-6">{error}</p>
           <button
             onClick={fetchContainers}
             className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg"

@@ -1,8 +1,15 @@
 package api
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/client"
@@ -68,10 +75,65 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Implement Telegram auth validation
-		// Temporarily disabled for testing
+		initData := r.Header.Get("X-Telegram-Init-Data")
+		if initData == "" {
+			http.Error(w, `{"success":false,"error":"Unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+
+		if !s.validateTelegramAuth(initData) {
+			http.Error(w, `{"success":false,"error":"Invalid auth"}`, http.StatusUnauthorized)
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) validateTelegramAuth(initData string) bool {
+	// Parse initData query string
+	values, err := url.ParseQuery(initData)
+	if err != nil {
+		return false
+	}
+
+	hash := values.Get("hash")
+	if hash == "" {
+		return false
+	}
+
+	// Remove hash from values
+	values.Del("hash")
+
+	// Build data-check-string
+	var keys []string
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var dataCheckString string
+	for _, k := range keys {
+		dataCheckString += k + "=" + values.Get(k) + "\n"
+	}
+	dataCheckString = strings.TrimSuffix(dataCheckString, "\n")
+
+	// Get bot token from env
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if botToken == "" {
+		return false
+	}
+
+	// Compute secret key: HMAC-SHA256(bot_token, "WebAppData")
+	secretKey := hmac.New(sha256.New, []byte("WebAppData"))
+	secretKey.Write([]byte(botToken))
+
+	// Compute hash: HMAC-SHA256(secret_key, data_check_string)
+	h := hmac.New(sha256.New, secretKey.Sum(nil))
+	h.Write([]byte(dataCheckString))
+	computedHash := hex.EncodeToString(h.Sum(nil))
+
+	return computedHash == hash
 }
 
 func (s *Server) Start(port string) error {
