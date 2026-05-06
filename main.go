@@ -794,9 +794,9 @@ func handlePS(chatID int64) {
 						cpu = "0.0%"
 					}
 					
-					memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-					memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
-					mem = fmt.Sprintf("%.0fMiB / %.0fMiB", memUsage, memLimit)
+					memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024 / 1024
+					memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024 / 1024
+					mem = fmt.Sprintf("%.2fGB / %.2fGB", memUsage, memLimit)
 				}
 				statsResp.Body.Close()
 			}
@@ -5259,8 +5259,8 @@ func handleAlerts(chatID int64) {
 		}
 		
 		// Memory calculation
-		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024
-		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024
+		memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024 / 1024
+		memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024 / 1024
 		memPercent := 0.0
 		if memLimit > 0 {
 			memPercent = (memUsage / memLimit) * 100
@@ -5273,7 +5273,7 @@ func handleAlerts(chatID int64) {
 			icon = "🟡"
 		}
 		
-		text += fmt.Sprintf("%s `%s`\n   CPU: %.1f%% | RAM: %.0fMB (%.1f%%)\n\n", 
+		text += fmt.Sprintf("%s `%s`\n   CPU: %.1f%% | RAM: %.2fGB (%.1f%%)\n\n", 
 			icon, name, cpuPercent, memUsage, memPercent)
 	}
 	
