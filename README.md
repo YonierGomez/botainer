@@ -47,13 +47,15 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 - Colorized logs with automatic pattern detection
 
 ✅ **Container Management**
-- Quick actions: Start, stop, restart with one tap
+- **Compact UI**: Modern, space-efficient design for all devices
+- Quick actions: Stats, Charts, Logs, Inspect, Restart, Stop, Delete
 - Bulk operations: Multi-select containers for batch actions
   - Select All / Deselect All functionality
   - Batch start, stop, restart, delete
   - Confirmation dialogs for destructive actions
 - Search and filters (all, running, stopped)
 - Live status indicators (🟢 running, 🔴 stopped)
+- Inline action buttons with wrap for better space usage
 
 ✅ **Docker Compose & Networks**
 - Compose Manager for all your projects
@@ -75,7 +77,11 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
   - Tag-based organization
 
 ✅ **Interface**
-- Dark theme optimized for mobile
+- **Compact Design**: 40% more information density
+- Hamburger menu with all options
+- Inline search + filter chips
+- Compact container cards (reduced padding and text sizes)
+- Dark theme optimized for all devices
 - Responsive design (phone, tablet, desktop)
 - Secure Telegram authentication
 - User whitelist via `ALLOWED_USERS`
@@ -477,13 +483,15 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 - Colorized logs with automatic pattern detection
 
 ✅ **Container Management**
-- Quick actions: Start, stop, restart with one tap
+- **Compact UI**: Modern, space-efficient design for all devices
+- Quick actions: Stats, Charts, Logs, Inspect, Restart, Stop, Delete
 - Bulk operations: Multi-select containers for batch actions
   - Select All / Deselect All functionality
   - Batch start, stop, restart, delete
   - Confirmation dialogs for destructive actions
 - Search and filters (all, running, stopped)
 - Live status indicators (🟢 running, 🔴 stopped)
+- Inline action buttons with wrap for better space usage
 
 ✅ **Docker Compose & Networks**
 - Compose Manager for all your projects
@@ -506,7 +514,11 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
   - Tag-based organization
 
 ✅ **Interface**
-- Dark theme optimized for mobile
+- **Compact Design**: 40% more information density
+- Hamburger menu with all options
+- Inline search + filter chips
+- Compact container cards (reduced padding and text sizes)
+- Dark theme optimized for all devices
 - Responsive design (phone, tablet, desktop)
 - Secure Telegram authentication
 - User whitelist via `ALLOWED_USERS`
@@ -517,6 +529,16 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 1. Open your bot in Telegram
 2. Send `/start` or tap menu button (☰)
 3. Tap **🐳 Dashboard** button
+
+**Quick Actions on Containers:**
+- **📊 Stats**: Real-time CPU/RAM usage
+- **📈 Charts**: Historical metrics (1h, 24h, 7d)
+- **📋 Logs**: View container logs with color coding
+- **🔍 Inspect**: Full container details in JSON format
+- **🔄 Restart**: Restart container
+- **⏹️ Stop**: Stop running container
+- **▶️ Start**: Start stopped container
+- **🗑️ Delete**: Remove container (with confirmation)
 
 **Configure Alerts:**
 1. Tap **🚨** (bell icon) in header
