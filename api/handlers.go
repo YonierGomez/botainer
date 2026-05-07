@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 	"github.com/gorilla/mux"
@@ -735,19 +733,19 @@ func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	log.Println("Check updates requested")
 	ctx := context.Background()
-	containers, err := s.docker.ContainerList(ctx, container.ListOptions{All: false}) // Only running
+	containers, err := s.docker.ContainerList(ctx, container.ListOptions{All: false})
 	if err != nil {
 		log.Printf("Error listing containers: %v", err)
 		s.sendError(w, http.StatusInternalServerError, "Failed to list containers")
 		return
 	}
 
-	log.Printf("Found %d running containers to check", len(containers))
+	log.Printf("Found %d running containers", len(containers))
 
 	type UpdateInfo struct {
 		ContainerName string `json:"container_name"`
 		CurrentImage  string `json:"current_image"`
-		Status        string `json:"status"`
+		HasUpdate     bool   `json:"has_update"`
 	}
 
 	updates := []UpdateInfo{}
@@ -756,69 +754,50 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	imageMap := make(map[string][]string)
 	for _, c := range containers {
 		name := strings.TrimPrefix(c.Names[0], "/")
-		inspect, _ := s.docker.ContainerInspect(ctx, c.ID)
+		inspect, err := s.docker.ContainerInspect(ctx, c.ID)
+		if err != nil {
+			continue
+		}
 		imageTag := inspect.Config.Image
 		imageMap[imageTag] = append(imageMap[imageTag], name)
 	}
 
 	log.Printf("Checking %d unique images", len(imageMap))
 
-	// Check each unique image (limit to 20 to avoid timeout)
-	count := 0
+	// Check each unique image by inspecting remote
 	for imageTag, containerNames := range imageMap {
-		if count >= 20 {
-			log.Printf("Reached limit of 20 images, skipping rest")
-			break
-		}
-		count++
-		
-		log.Printf("Checking image: %s", imageTag)
-		
-		// Get local image ID
-		inspect, _ := s.docker.ContainerInspect(ctx, containerNames[0])
-		localID := inspect.Image
-
-		// Quick pull check with timeout
-		pullCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		reader, err := s.docker.ImagePull(pullCtx, imageTag, image.PullOptions{})
-		if err == nil {
-			io.Copy(io.Discard, reader)
-			reader.Close()
-		} else {
-			log.Printf("Error pulling %s: %v", imageTag, err)
-			cancel()
-			for _, name := range containerNames {
-				updates = append(updates, UpdateInfo{
-					ContainerName: name,
-					CurrentImage:  imageTag,
-					Status:        "error",
-				})
-			}
+		// Get local image digest
+		inspect, err := s.docker.ContainerInspect(ctx, containerNames[0])
+		if err != nil {
 			continue
 		}
-		cancel()
+		localDigest := inspect.Image
 
-		// Get new image ID
-		imgInspect, _, _ := s.docker.ImageInspectWithRaw(ctx, imageTag)
-		newID := imgInspect.ID
-
-		// Check if update available
-		status := "up-to-date"
-		if localID != "" && newID != "" && localID != newID {
-			status = "update-available"
-			log.Printf("Update found for %s", imageTag)
+		// Inspect remote image (no pull, just metadata)
+		distInspect, err := s.docker.DistributionInspect(ctx, imageTag, "")
+		hasUpdate := false
+		
+		if err == nil {
+			remoteDigest := distInspect.Descriptor.Digest.String()
+			// Compare digests
+			if localDigest != "" && remoteDigest != "" && !strings.Contains(localDigest, remoteDigest) {
+				hasUpdate = true
+				log.Printf("Update available for %s: local=%s remote=%s", imageTag, localDigest[:20], remoteDigest[:20])
+			}
+		} else {
+			log.Printf("Could not check remote for %s: %v", imageTag, err)
 		}
 
 		for _, name := range containerNames {
 			updates = append(updates, UpdateInfo{
 				ContainerName: name,
 				CurrentImage:  imageTag,
-				Status:        status,
+				HasUpdate:     hasUpdate,
 			})
 		}
 	}
 
-	log.Printf("Check complete. Total containers checked: %d", len(updates))
+	log.Printf("Check complete. Found %d containers", len(updates))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
