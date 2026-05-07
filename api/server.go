@@ -64,6 +64,9 @@ func (s *Server) routes() {
 	api.HandleFunc("/metrics", s.handleAllMetrics).Methods("GET")
 	api.HandleFunc("/metrics/export", s.handleExportMetrics).Methods("GET")
 	
+	// Bulk operations
+	api.HandleFunc("/bulk", s.handleBulkAction).Methods("POST")
+	
 	// Alert endpoints
 	api.HandleFunc("/alerts/configs", s.handleGetAlertConfigs).Methods("GET")
 	api.HandleFunc("/alerts/configs", s.handleSetAlertConfig).Methods("POST")

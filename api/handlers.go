@@ -251,6 +251,51 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	s.sendJSON(w, http.StatusOK, metrics)
 }
 
+// Bulk operations handler
+func (s *Server) handleBulkAction(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ContainerIDs []string `json:"container_ids"`
+		Action       string   `json:"action"` // start, stop, restart
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.sendError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if len(req.ContainerIDs) == 0 {
+		s.sendError(w, http.StatusBadRequest, "No containers specified")
+		return
+	}
+
+	ctx := context.Background()
+	results := make(map[string]interface{})
+	
+	for _, id := range req.ContainerIDs {
+		var err error
+		switch req.Action {
+		case "start":
+			err = s.docker.ContainerStart(ctx, id, container.StartOptions{})
+		case "stop":
+			timeout := 10
+			err = s.docker.ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout})
+		case "restart":
+			timeout := 10
+			err = s.docker.ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout})
+		default:
+			results[id] = "invalid action"
+			continue
+		}
+		
+		if err != nil {
+			results[id] = err.Error()
+		} else {
+			results[id] = "success"
+		}
+	}
+
+	s.sendJSON(w, http.StatusOK, results)
+}
+
 // Alert handlers
 func (s *Server) handleGetAlertConfigs(w http.ResponseWriter, r *http.Request) {
 	configs := s.alertStore.GetAllConfigs()
