@@ -259,15 +259,22 @@ function App() {
     const loadingMsg = 'Checking for updates...'
     
     // Show loading immediately
-    if (!confirm(loadingMsg + '\n\nThis may take a few seconds. Continue?')) {
+    if (!confirm(loadingMsg + '\n\nThis may take 30-60 seconds. Continue?')) {
       return
     }
 
     try {
+      // Increase timeout to 2 minutes
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 120000)
+
       const response = await fetch('/api/updates/check', {
         method: 'POST',
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
+        signal: controller.signal
       })
+      
+      clearTimeout(timeoutId)
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -286,7 +293,11 @@ function App() {
         alert('❌ Error: ' + (result.error || 'Unknown error'))
       }
     } catch (err) {
-      alert('❌ Failed to check updates:\n' + (err instanceof Error ? err.message : 'Unknown error'))
+      if (err instanceof Error && err.name === 'AbortError') {
+        alert('⏱️ Request timed out. Try again or check fewer containers.')
+      } else {
+        alert('❌ Failed to check updates:\n' + (err instanceof Error ? err.message : 'Unknown error'))
+      }
     }
   }
 
