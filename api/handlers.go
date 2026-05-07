@@ -255,7 +255,7 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBulkAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ContainerIDs []string `json:"container_ids"`
-		Action       string   `json:"action"` // start, stop, restart
+		Action       string   `json:"action"` // start, stop, restart, delete
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.sendError(w, http.StatusBadRequest, "Invalid request body")
@@ -281,6 +281,8 @@ func (s *Server) handleBulkAction(w http.ResponseWriter, r *http.Request) {
 		case "restart":
 			timeout := 10
 			err = s.docker.ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout})
+		case "delete":
+			err = s.docker.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
 		default:
 			results[id] = "invalid action"
 			continue

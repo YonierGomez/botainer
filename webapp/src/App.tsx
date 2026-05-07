@@ -150,7 +150,7 @@ function App() {
     }
   }
 
-  const handleBulkAction = async (action: 'start' | 'stop' | 'restart') => {
+  const handleBulkAction = async (action: 'start' | 'stop' | 'restart' | 'delete') => {
     if (selectedIds.size === 0) return
     
     try {
@@ -543,9 +543,19 @@ function App() {
                         </button>
                         <button
                           onClick={() => handleBulkAction('stop')}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors text-sm"
+                          className="px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors text-sm"
                         >
                           ⏹️ Stop
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete ${selectedIds.size} containers?`)) {
+                              handleBulkAction('delete')
+                            }
+                          }}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors text-sm"
+                        >
+                          🗑️ Delete
                         </button>
                       </div>
                     )}
