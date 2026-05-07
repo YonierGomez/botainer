@@ -143,7 +143,7 @@ function App() {
     }
   }
 
-  const handleAction = async (id: string, action: 'start' | 'stop' | 'restart') => {
+  const handleAction = async (id: string, action: 'start' | 'stop' | 'restart' | 'delete') => {
     try {
       const response = await fetch(`/api/containers/${id}/${action}`, {
         method: 'POST',
@@ -638,9 +638,19 @@ function App() {
                             </button>
                             <button
                               onClick={() => handleAction(container.Id, 'stop')}
-                              className="px-2.5 py-1 text-[11px] bg-red-600 text-white rounded font-semibold hover:bg-red-700 transition-colors"
+                              className="px-2.5 py-1 text-[11px] bg-orange-600 text-white rounded font-semibold hover:bg-orange-700 transition-colors"
                             >
                               ⏹️ Stop
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete ${container.Names[0]?.replace('/', '')}?`)) {
+                                  handleAction(container.Id, 'delete')
+                                }
+                              }}
+                              className="px-2.5 py-1 text-[11px] bg-red-600 text-white rounded font-semibold hover:bg-red-700 transition-colors"
+                            >
+                              🗑️ Delete
                             </button>
                           </>
                         ) : (
@@ -656,6 +666,16 @@ function App() {
                               className="px-2.5 py-1 text-[11px] bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-700 transition-colors"
                             >
                               ▶️ Start
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete ${container.Names[0]?.replace('/', '')}?`)) {
+                                  handleAction(container.Id, 'delete')
+                                }
+                              }}
+                              className="px-2.5 py-1 text-[11px] bg-red-600 text-white rounded font-semibold hover:bg-red-700 transition-colors"
+                            >
+                              🗑️ Delete
                             </button>
                           </>
                         )}
