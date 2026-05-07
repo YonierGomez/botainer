@@ -31,7 +31,7 @@
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
-## ✨ Mini App Features (v2.0)
+## ✨ Mini App Features (v2.1)
 
 The visual dashboard includes:
 - 📊 **Real-time container monitoring** - Auto-refresh every 5 seconds
@@ -39,6 +39,8 @@ The visual dashboard includes:
 - 📈 **Live stats** - CPU and memory usage with visual graphs
 - 📋 **Colorized logs** - Automatic error detection (red), warnings (yellow), success (green)
 - ⚡ **Quick actions** - Start, stop, restart containers with one tap
+- 📊 **Historical charts** - View CPU/RAM trends over time (1h, 24h, 7d) ✨ NEW
+- 📥 **Export metrics** - Download metrics as CSV or JSON ✨ NEW
 - 🌙 **Dark theme** - Optimized for mobile viewing
 - 🔒 **Secure** - Telegram authentication with user whitelist
 
@@ -458,19 +460,19 @@ The **Telegram Mini App** is now available! A visual web interface that opens di
 
 ### Roadmap: Next Features
 
-**Phase 2: Advanced Monitoring** (v2.1)
-- Historical resource usage charts (24h, 7d, 30d)
-- Per-container resource breakdown
-- Configurable alerts (CPU/RAM thresholds)
-- Export metrics as CSV/JSON
+**Phase 2.1: Advanced Monitoring** (v2.1) - 50% Complete
+- ✅ Historical resource usage charts (1h, 24h, 7d)
+- ✅ Export metrics as CSV/JSON
+- ⏳ Configurable alerts (CPU/RAM thresholds)
+- ⏳ Per-container resource breakdown
 
-**Phase 3: Advanced Management** (v2.2)
+**Phase 2.2: Advanced Management** (v2.2)
 - Visual container creation form
 - Bulk operations (start/stop multiple containers)
 - Docker Compose project management
 - Network visualizer
 
-**Phase 4: Collaboration** (v2.3)
+**Phase 2.3: Collaboration** (v2.3)
 - Multi-user access control
 - Audit log viewer
 - Shared templates

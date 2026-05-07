@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -216,4 +217,72 @@ func (s *Server) handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	s.sendJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleContainerMetrics(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	
+	// Get duration from query (default 1h)
+	durationStr := r.URL.Query().Get("duration")
+	duration := time.Hour
+	if durationStr != "" {
+		if d, err := time.ParseDuration(durationStr); err == nil {
+			duration = d
+		}
+	}
+	
+	metrics := s.metricsStore.GetLast(id, duration)
+	s.sendJSON(w, http.StatusOK, metrics)
+}
+
+func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
+	// Get duration from query (default 1h)
+	durationStr := r.URL.Query().Get("duration")
+	duration := time.Hour
+	if durationStr != "" {
+		if d, err := time.ParseDuration(durationStr); err == nil {
+			duration = d
+		}
+	}
+	
+	metrics := s.metricsStore.GetLast("", duration)
+	s.sendJSON(w, http.StatusOK, metrics)
+}
+
+func (s *Server) handleExportMetrics(w http.ResponseWriter, r *http.Request) {
+	// Get parameters
+	format := r.URL.Query().Get("format") // csv or json
+	if format == "" {
+		format = "json"
+	}
+	
+	durationStr := r.URL.Query().Get("duration")
+	duration := 24 * time.Hour
+	if durationStr != "" {
+		if d, err := time.ParseDuration(durationStr); err == nil {
+			duration = d
+		}
+	}
+	
+	containerID := r.URL.Query().Get("container")
+	metrics := s.metricsStore.GetLast(containerID, duration)
+	
+	if format == "csv" {
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=metrics.csv")
+		
+		// Write CSV header
+		w.Write([]byte("timestamp,container_id,container_name,cpu_percent,memory_usage_gb,memory_limit_gb,memory_percent\n"))
+		
+		// Write data
+		for _, m := range metrics {
+			line := fmt.Sprintf("%d,%s,%s,%.2f,%.2f,%.2f,%.2f\n",
+				m.Timestamp, m.ContainerID, m.ContainerName,
+				m.CPUPercent, m.MemoryUsage, m.MemoryLimit, m.MemoryPercent)
+			w.Write([]byte(line))
+		}
+	} else {
+		s.sendJSON(w, http.StatusOK, metrics)
+	}
 }

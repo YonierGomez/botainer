@@ -18,15 +18,17 @@ import (
 )
 
 type Server struct {
-	router   *mux.Router
-	docker   *client.Client
-	upgrader websocket.Upgrader
+	router        *mux.Router
+	docker        *client.Client
+	upgrader      websocket.Upgrader
+	metricsStore  *MetricsStore
 }
 
-func NewServer(dockerClient *client.Client) *Server {
+func NewServer(dockerClient *client.Client, metricsStore *MetricsStore) *Server {
 	s := &Server{
-		router: mux.NewRouter(),
-		docker: dockerClient,
+		router:       mux.NewRouter(),
+		docker:       dockerClient,
+		metricsStore: metricsStore,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // TODO: Implement proper origin check
@@ -51,9 +53,14 @@ func (s *Server) routes() {
 	api.HandleFunc("/containers/{id}/restart", s.handleRestartContainer).Methods("POST")
 	api.HandleFunc("/containers/{id}/logs", s.handleContainerLogs).Methods("GET")
 	api.HandleFunc("/containers/{id}/stats", s.handleContainerStats).Methods("GET")
+	api.HandleFunc("/containers/{id}/metrics", s.handleContainerMetrics).Methods("GET")
 	
 	// Stats endpoint
 	api.HandleFunc("/stats", s.handleSystemStats).Methods("GET")
+	
+	// Metrics endpoints
+	api.HandleFunc("/metrics", s.handleAllMetrics).Methods("GET")
+	api.HandleFunc("/metrics/export", s.handleExportMetrics).Methods("GET")
 	
 	// WebSocket endpoint
 	api.HandleFunc("/ws", s.handleWebSocket)
