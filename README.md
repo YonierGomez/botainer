@@ -31,18 +31,34 @@
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
-## ✨ Mini App Features (v2.1)
+## ✨ Mini App Features (v2.2)
 
 The visual dashboard includes:
-- 📊 **Real-time container monitoring** - Auto-refresh every 5 seconds
-- 🔍 **Search & filters** - Find containers by name or image
-- 📈 **Live stats** - CPU and memory usage with visual graphs
-- 📋 **Colorized logs** - Automatic error detection (red), warnings (yellow), success (green)
-- ⚡ **Quick actions** - Start, stop, restart containers with one tap
-- 📊 **Historical charts** - View CPU/RAM trends over time (1h, 24h, 7d) ✨ NEW
-- 📥 **Export metrics** - Download metrics as CSV or JSON ✨ NEW
-- 🌙 **Dark theme** - Optimized for mobile viewing
-- 🔒 **Secure** - Telegram authentication with user whitelist
+
+### 📊 Monitoring & Analytics
+- **Real-time container monitoring** - Auto-refresh every 5 seconds
+- **Historical charts** - View CPU/RAM trends over time (1h, 24h, 7d)
+- **Export metrics** - Download metrics as CSV or JSON
+- **Alerts system** - Configure CPU/RAM thresholds with Telegram notifications
+- **Live stats** - CPU and memory usage with visual graphs
+- **Colorized logs** - Automatic error detection (red), warnings (yellow), success (green)
+
+### 🔧 Container Management
+- **Quick actions** - Start, stop, restart containers with one tap
+- **Bulk operations** - Select multiple containers and execute batch actions (start, stop, restart, delete)
+- **Search & filters** - Find containers by name or image
+- **Container stats** - Detailed resource usage per container
+
+### 🐳 Docker Compose
+- **Compose Manager** - Manage Docker Compose projects from the dashboard
+- **Auto-detection** - Automatically finds all compose.yaml files in /workspace
+- **Project actions** - Up, down, restart, pull for entire projects
+- **Visual feedback** - Loading states and action confirmations
+
+### 🎨 Interface
+- **Dark theme** - Optimized for mobile viewing
+- **Responsive design** - Works on phone, tablet, desktop
+- **Secure** - Telegram authentication with user whitelist
 
 > **Note:** The Mini App is **completely optional**. The bot works perfectly without it using text commands only.
 
@@ -425,65 +441,94 @@ Commands are registered automatically on startup. If they don't appear, restart 
 
 ---
 
-## 11. Mini App (v2.0 - Released!)
+## 11. Mini App (v2.2 - Released!)
 
-The **Telegram Mini App** is now available! A visual web interface that opens directly inside Telegram for a richer user experience.
+The **Telegram Mini App** provides a visual web interface that opens directly inside Telegram.
 
-### Current Features (v2.0)
+### Current Features (v2.2)
 
-✅ **Visual Dashboard**
-- Real-time container status with auto-refresh every 5 seconds
-- Container list with search and filters (all, running, stopped)
-- Live status indicators (🟢 running, 🔴 stopped)
+✅ **Monitoring & Analytics**
+- Real-time dashboard with auto-refresh every 5 seconds
+- Historical charts for CPU/RAM trends (1h, 24h, 7d)
+- Export metrics as CSV or JSON
+- Alerts system with CPU/RAM thresholds
+- Telegram notifications when thresholds exceeded
+- Alert history with timestamps
+- Colorized logs with automatic pattern detection
 
 ✅ **Container Management**
 - Quick actions: Start, stop, restart with one tap
-- Works on any device (phone, tablet, desktop)
+- Bulk operations: Multi-select containers for batch actions
+  - Select All / Deselect All functionality
+  - Batch start, stop, restart, delete
+  - Confirmation dialogs for destructive actions
+- Search and filters (all, running, stopped)
+- Live status indicators (🟢 running, 🔴 stopped)
 
-✅ **Monitoring**
-- CPU usage with visual progress bars
-- Memory usage in GB with percentage
-- Real-time stats refresh
+✅ **Docker Compose**
+- Compose Manager for all your projects
+- Auto-detection of compose.yaml files in /workspace
+- Project-level actions: Up, Down, Restart, Pull
+- Loading states and visual feedback
+- Confirmation before destructive operations
 
-✅ **Logs Viewer**
-- Colorized logs with automatic pattern detection:
-  - 🔴 Red: errors, exceptions, failures
-  - 🟡 Yellow: warnings, deprecated
-  - 🟢 Green: success, started, ready
-  - 🔵 Blue: info, debug
-- Last 100 lines with refresh button
+✅ **Interface**
+- Dark theme optimized for mobile
+- Responsive design (phone, tablet, desktop)
+- Secure Telegram authentication
+- User whitelist via `ALLOWED_USERS`
 
-✅ **Security**
-- Telegram authentication with HMAC-SHA256 validation
-- User whitelist via `ALLOWED_USERS` environment variable
-- No external authentication needed
+### How to Use
+
+**Access the Dashboard:**
+1. Open your bot in Telegram
+2. Send `/start` or tap menu button (☰)
+3. Tap **🐳 Dashboard** button
+
+**Configure Alerts:**
+1. Tap **🚨** (bell icon) in header
+2. Select container and set CPU/RAM thresholds
+3. Enable alerts and save
+4. Receive Telegram notifications when exceeded
+
+**Bulk Operations:**
+1. Tap **📋** (clipboard) in header
+2. Select multiple containers with checkboxes
+3. Use action bar: Start, Restart, Stop, or Delete
+4. Automatically exits bulk mode after action
+
+**Manage Compose Projects:**
+1. Tap **🐳** (stack) in header
+2. See all detected Compose projects
+3. Execute: Up, Restart, Pull, Down
+
+**View Historical Charts:**
+1. Tap **📈 Charts** on any running container
+2. Select time range (1h, 24h, 7d)
+
+**Export Metrics:**
+1. Tap **📥** (download) in header
+2. Select time range and format (CSV/JSON)
 
 ### Roadmap: Next Features
 
-**Phase 2.1: Advanced Monitoring** (v2.1) - 50% Complete
+**Phase 2.1: Advanced Monitoring** (v2.1) - ✅ 100% Complete
 - ✅ Historical resource usage charts (1h, 24h, 7d)
 - ✅ Export metrics as CSV/JSON
-- ⏳ Configurable alerts (CPU/RAM thresholds)
-- ⏳ Per-container resource breakdown
+- ✅ Configurable alerts (CPU/RAM thresholds)
+- ✅ Telegram notifications for alerts
 
-**Phase 2.2: Advanced Management** (v2.2)
-- Visual container creation form
-- Bulk operations (start/stop multiple containers)
-- Docker Compose project management
-- Network visualizer
+**Phase 2.2: Advanced Management** (v2.2) - ✅ 75% Complete
+- ✅ Bulk operations (start/stop/restart/delete multiple containers)
+- ✅ Docker Compose project management
+- ⏳ Visual container creation form
+- ⏳ Network visualizer
 
 **Phase 2.3: Collaboration** (v2.3)
 - Multi-user access control
 - Audit log viewer
 - Shared templates
 - Team notifications
-
-### How to Access
-
-1. Open your bot in Telegram
-2. Click the menu button (☰) or send `/start`
-3. Tap **🐳 Dashboard** button
-4. The Mini App opens inside Telegram
 
 ### Technical Architecture
 
@@ -502,6 +547,8 @@ The **Telegram Mini App** is now available! A visual web interface that opens di
 │   - REST API (Gorilla Mux)              │
 │   - Telegram auth validation            │
 │   - Docker API integration              │
+│   - Metrics collection (every 30s)      │
+│   - Alert monitoring                    │
 └──────────────┬──────────────────────────┘
                │ Unix Socket
                ▼
