@@ -31,7 +31,18 @@
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
-> **Note:** The Mini App (visual dashboard) is **completely optional**. The bot works perfectly without it using text commands only.
+## ✨ Mini App Features (v2.0)
+
+The visual dashboard includes:
+- 📊 **Real-time container monitoring** - Auto-refresh every 5 seconds
+- 🔍 **Search & filters** - Find containers by name or image
+- 📈 **Live stats** - CPU and memory usage with visual graphs
+- 📋 **Colorized logs** - Automatic error detection (red), warnings (yellow), success (green)
+- ⚡ **Quick actions** - Start, stop, restart containers with one tap
+- 🌙 **Dark theme** - Optimized for mobile viewing
+- 🔒 **Secure** - Telegram authentication with user whitelist
+
+> **Note:** The Mini App is **completely optional**. The bot works perfectly without it using text commands only.
 
 ---
 
@@ -412,80 +423,81 @@ Commands are registered automatically on startup. If they don't appear, restart 
 
 ---
 
-## 11. Roadmap: Telegram Mini App (Coming Soon)
+## 11. Mini App (v2.0 - Released!)
 
-We're planning to add a **Telegram Mini App** — a visual web interface that opens directly inside Telegram for a richer user experience.
+The **Telegram Mini App** is now available! A visual web interface that opens directly inside Telegram for a richer user experience.
 
-### What is a Mini App?
+### Current Features (v2.0)
 
-A Mini App is a web application (HTML/CSS/JavaScript) that runs inside Telegram with access to special APIs. Think of it as having a full dashboard in your phone without leaving the chat.
+✅ **Visual Dashboard**
+- Real-time container status with auto-refresh every 5 seconds
+- Container list with search and filters (all, running, stopped)
+- Live status indicators (🟢 running, 🔴 stopped)
 
-### Planned Features
+✅ **Container Management**
+- Quick actions: Start, stop, restart with one tap
+- Works on any device (phone, tablet, desktop)
 
-#### 📊 **Visual Dashboard**
-- Real-time container status with live updates
-- CPU, RAM, and disk usage graphs
-- Container health indicators and alerts
-- System overview with interactive charts
+✅ **Monitoring**
+- CPU usage with visual progress bars
+- Memory usage in GB with percentage
+- Real-time stats refresh
 
-#### 🎛️ **Advanced Container Management**
-- Drag-and-drop to reorder containers
-- Bulk operations (start/stop/restart multiple containers)
-- Quick filters (running, stopped, by image, by project)
-- Container grouping by Docker Compose project
+✅ **Logs Viewer**
+- Colorized logs with automatic pattern detection:
+  - 🔴 Red: errors, exceptions, failures
+  - 🟡 Yellow: warnings, deprecated
+  - 🟢 Green: success, started, ready
+  - 🔵 Blue: info, debug
+- Last 100 lines with refresh button
 
-#### 📝 **Interactive Logs Viewer**
-- Live log streaming with syntax highlighting
-- Search and filter logs in real-time
-- Download logs with date range selection
-- Multi-container log aggregation
+✅ **Security**
+- Telegram authentication with HMAC-SHA256 validation
+- User whitelist via `ALLOWED_USERS` environment variable
+- No external authentication needed
 
-#### 🔧 **Visual Container Creation**
-- Form-based container creation (no YAML needed)
-- Port mapping with conflict detection
-- Volume mounting with file browser
-- Environment variable editor with validation
-- Network selection with visual diagram
+### Roadmap: Next Features
 
-#### 📈 **Resource Monitoring**
-- Historical resource usage charts (last 24h, 7d, 30d)
+**Phase 2: Advanced Monitoring** (v2.1)
+- Historical resource usage charts (24h, 7d, 30d)
 - Per-container resource breakdown
-- Alerts configuration with visual thresholds
+- Configurable alerts (CPU/RAM thresholds)
 - Export metrics as CSV/JSON
 
-#### 🔄 **Update Management**
-- Visual diff of image changes
-- Batch update with preview
-- Rollback history with one-click restore
-- Update scheduling (maintenance windows)
+**Phase 3: Advanced Management** (v2.2)
+- Visual container creation form
+- Bulk operations (start/stop multiple containers)
+- Docker Compose project management
+- Network visualizer
 
-#### 🗂️ **Template Library**
-- Browse and deploy pre-configured stacks
-- Save your own templates with screenshots
-- Share templates via link
-- One-click deployment from template
+**Phase 4: Collaboration** (v2.3)
+- Multi-user access control
+- Audit log viewer
+- Shared templates
+- Team notifications
 
-#### 🌐 **Network Visualizer**
-- Interactive network topology diagram
-- Container connections and port mappings
-- Network creation and management
-- DNS resolution testing
+### How to Access
+
+1. Open your bot in Telegram
+2. Click the menu button (☰) or send `/start`
+3. Tap **🐳 Dashboard** button
+4. The Mini App opens inside Telegram
 
 ### Technical Architecture
 
 ```
 ┌─────────────────────────────────────────┐
 │   Telegram Mini App (Frontend)         │
-│   - React + TypeScript                  │
+│   - React 19 + TypeScript               │
 │   - Telegram WebApp SDK                 │
-│   - Real-time updates via WebSocket    │
+│   - Auto-refresh every 5 seconds        │
+│   - Tailwind CSS dark theme             │
 └──────────────┬──────────────────────────┘
                │ HTTPS
                ▼
 ┌─────────────────────────────────────────┐
 │   Botainer Backend (Go)                 │
-│   - REST API for Mini App               │
-│   - WebSocket for live updates          │
+│   - REST API (Gorilla Mux)              │
 │   - Telegram auth validation            │
 │   - Docker API integration              │
 └──────────────┬──────────────────────────┘
@@ -495,69 +507,6 @@ A Mini App is a web application (HTML/CSS/JavaScript) that runs inside Telegram 
 │   Docker Engine                         │
 └─────────────────────────────────────────┘
 ```
-
-### Why a Mini App?
-
-**Current (Bot Commands)**
-- ✅ Works everywhere (phone, desktop, web)
-- ✅ No installation needed
-- ✅ Simple text-based interface
-- ❌ Limited interactivity
-- ❌ No real-time updates
-- ❌ Hard to visualize complex data
-
-**Future (Mini App)**
-- ✅ All benefits of bot commands
-- ✅ Rich visual interface
-- ✅ Real-time updates
-- ✅ Interactive charts and graphs
-- ✅ Better for complex operations
-- ✅ Still inside Telegram (no external apps)
-
-### Access Methods
-
-The Mini App will be accessible via:
-1. **Menu button** — Quick access from chat menu
-2. **Inline button** — Launch from bot messages
-3. **Direct link** — `https://t.me/botainerbot/app`
-4. **Attachment menu** — Available in any chat
-
-### Development Phases
-
-**Phase 1: Foundation** (v2.0)
-- Basic dashboard with container list
-- Start/stop/restart actions
-- Real-time status updates
-- Logs viewer
-
-**Phase 2: Monitoring** (v2.1)
-- Resource usage charts
-- Historical data
-- Alerts configuration
-- Export metrics
-
-**Phase 3: Advanced Management** (v2.2)
-- Visual container creation
-- Bulk operations
-- Template library
-- Network visualizer
-
-**Phase 4: Collaboration** (v2.3)
-- Multi-user access control
-- Audit log viewer
-- Shared templates
-- Team notifications
-
-### Timeline
-
-- **Q2 2026**: Planning and design
-- **Q3 2026**: Phase 1 development
-- **Q4 2026**: Beta testing
-- **Q1 2027**: Public release
-
-### Feedback Welcome
-
-Have ideas for the Mini App? Open an issue on GitHub or join our [Telegram channel](https://t.me/botainer_news) to share your thoughts!
 
 ---
 
