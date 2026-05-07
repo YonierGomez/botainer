@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/go-connections/nat"
 	"github.com/gorilla/mux"
 )
 
@@ -252,6 +254,74 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	metrics := s.metricsStore.GetLast("", duration)
 	s.sendJSON(w, http.StatusOK, metrics)
+}
+
+// Container creation handler
+func (s *Server) handleCreateContainer(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name    string            `json:"name"`
+		Image   string            `json:"image"`
+		Env     []string          `json:"env"`
+		Ports   map[string]string `json:"ports"`
+		Volumes []string          `json:"volumes"`
+		Network string            `json:"network"`
+		Restart string            `json:"restart"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.sendError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	ctx := context.Background()
+	
+	// Create container config
+	config := &container.Config{
+		Image: req.Image,
+		Env:   req.Env,
+	}
+	
+	// Host config with ports and volumes
+	hostConfig := &container.HostConfig{
+		PortBindings: make(map[nat.Port][]nat.PortBinding),
+		Binds:        req.Volumes,
+	}
+	
+	// Parse port mappings
+	for containerPort, hostPort := range req.Ports {
+		port := nat.Port(containerPort)
+		hostConfig.PortBindings[port] = []nat.PortBinding{{HostPort: hostPort}}
+	}
+	
+	// Set restart policy
+	if req.Restart != "" {
+		hostConfig.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(req.Restart)}
+	}
+	
+	// Network config
+	networkConfig := &network.NetworkingConfig{}
+	if req.Network != "" {
+		networkConfig.EndpointsConfig = map[string]*network.EndpointSettings{
+			req.Network: {},
+		}
+	}
+	
+	// Create container
+	resp, err := s.docker.ContainerCreate(ctx, config, hostConfig, networkConfig, nil, req.Name)
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	
+	// Start container
+	if err := s.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		s.sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	
+	s.sendJSON(w, http.StatusOK, map[string]string{
+		"id":      resp.ID,
+		"message": "Container created and started",
+	})
 }
 
 // Docker Compose handlers

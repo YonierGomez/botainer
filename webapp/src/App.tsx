@@ -3,6 +3,7 @@ import HistoricalCharts from './components/HistoricalCharts'
 import ExportMetrics from './components/ExportMetrics'
 import AlertsManager from './components/AlertsManager'
 import ComposeManager from './components/ComposeManager'
+import ContainerCreator from './components/ContainerCreator'
 
 // Version: 2.1.1 - Added Export Metrics
 
@@ -51,6 +52,7 @@ function App() {
   const [showExportMetrics, setShowExportMetrics] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
+  const [showCreator, setShowCreator] = useState(false)
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [logs, setLogs] = useState<string>('')
@@ -351,6 +353,15 @@ function App() {
               </div>
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={() => setShowCreator(true)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="Create Container"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
               <button
                 onClick={() => setShowCompose(true)}
                 className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
@@ -850,6 +861,15 @@ function App() {
       {showCompose && (
         <ComposeManager
           onClose={() => setShowCompose(false)}
+          getAuthHeaders={getAuthHeaders}
+        />
+      )}
+
+      {/* Container Creator Modal */}
+      {showCreator && (
+        <ContainerCreator
+          onClose={() => setShowCreator(false)}
+          onSuccess={() => fetchContainers()}
           getAuthHeaders={getAuthHeaders}
         />
       )}

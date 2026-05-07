@@ -49,6 +49,7 @@ func (s *Server) routes() {
 
 	// Container endpoints
 	api.HandleFunc("/containers", s.handleListContainers).Methods("GET")
+	api.HandleFunc("/containers", s.handleCreateContainer).Methods("POST")
 	api.HandleFunc("/containers/{id}", s.handleGetContainer).Methods("GET")
 	api.HandleFunc("/containers/{id}/start", s.handleStartContainer).Methods("POST")
 	api.HandleFunc("/containers/{id}/stop", s.handleStopContainer).Methods("POST")

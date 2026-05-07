@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/AlertsManager.tsx","./src/components/ComposeManager.tsx","./src/components/ExportMetrics.tsx","./src/components/HistoricalCharts.tsx"],"version":"5.7.3"}
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/AlertsManager.tsx","./src/components/ComposeManager.tsx","./src/components/ContainerCreator.tsx","./src/components/ExportMetrics.tsx","./src/components/HistoricalCharts.tsx"],"version":"5.7.3"}
