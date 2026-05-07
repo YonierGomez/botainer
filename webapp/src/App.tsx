@@ -49,6 +49,8 @@ function App() {
   const [selectedContainerCharts, setSelectedContainerCharts] = useState<Container | null>(null)
   const [showExportMetrics, setShowExportMetrics] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [logs, setLogs] = useState<string>('')
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
@@ -146,6 +148,51 @@ function App() {
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Unknown error')
     }
+  }
+
+  const handleBulkAction = async (action: 'start' | 'stop' | 'restart') => {
+    if (selectedIds.size === 0) return
+    
+    try {
+      const response = await fetch('/api/bulk', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          container_ids: Array.from(selectedIds),
+          action
+        })
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        setSelectedIds(new Set())
+        setBulkMode(false)
+        fetchContainers()
+      }
+    } catch (err) {
+      alert('Bulk action failed')
+    }
+  }
+
+  const toggleSelection = (id: string) => {
+    const newSet = new Set(selectedIds)
+    if (newSet.has(id)) {
+      newSet.delete(id)
+    } else {
+      newSet.add(id)
+    }
+    setSelectedIds(newSet)
+  }
+
+  const selectAll = () => {
+    setSelectedIds(new Set(filteredContainers.map(c => c.Id)))
+  }
+
+  const deselectAll = () => {
+    setSelectedIds(new Set())
   }
 
   const fetchLogs = async (container: Container) => {
@@ -303,6 +350,20 @@ function App() {
             </div>
             <div className="flex gap-2">
               <button
+                onClick={() => {
+                  setBulkMode(!bulkMode)
+                  setSelectedIds(new Set())
+                }}
+                className={`p-2 rounded-lg transition-colors ${
+                  bulkMode ? 'bg-blue-600 text-white' : 'hover:bg-gray-700 text-gray-300'
+                }`}
+                title="Bulk Operations"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+              </button>
+              <button
                 onClick={() => setShowAlerts(true)}
                 className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
                 title="Alerts Manager"
@@ -444,13 +505,69 @@ function App() {
               )}
             </div>
           ) : (
-            filteredContainers.map((container) => (
+            <>
+              {/* Bulk Actions Bar */}
+              {bulkMode && (
+                <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-4 mb-4">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-white font-semibold">
+                        {selectedIds.size} selected
+                      </span>
+                      <button
+                        onClick={selectAll}
+                        className="text-sm text-blue-400 hover:text-blue-300"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={deselectAll}
+                        className="text-sm text-blue-400 hover:text-blue-300"
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                    {selectedIds.size > 0 && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleBulkAction('start')}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors text-sm"
+                        >
+                          ▶️ Start
+                        </button>
+                        <button
+                          onClick={() => handleBulkAction('restart')}
+                          className="px-4 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition-colors text-sm"
+                        >
+                          🔄 Restart
+                        </button>
+                        <button
+                          onClick={() => handleBulkAction('stop')}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors text-sm"
+                        >
+                          ⏹️ Stop
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {filteredContainers.map((container) => (
               <div
                 key={container.Id}
                 className="bg-gray-800 rounded-2xl shadow-xl p-4 border border-gray-700 hover:border-gray-600 transition-all"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start space-x-3 flex-1 min-w-0">
+                    {bulkMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(container.Id)}
+                        onChange={() => toggleSelection(container.Id)}
+                        className="mt-2 w-5 h-5 rounded border-gray-600 text-blue-600 focus:ring-blue-500"
+                      />
+                    )}
                     <div className="flex-shrink-0 mt-1">
                       <div className={`w-3 h-3 rounded-full ${getStatusColor(container.State)} shadow-lg`}></div>
                     </div>
@@ -466,60 +583,63 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 flex-shrink-0">
-                    {container.State === 'running' ? (
-                      <>
-                        <button
-                          onClick={() => fetchStats(container)}
-                          className="px-4 py-2 text-sm bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors shadow-lg whitespace-nowrap"
-                        >
-                          📊 Stats
-                        </button>
-                        <button
-                          onClick={() => setSelectedContainerCharts(container)}
-                          className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg whitespace-nowrap"
-                        >
-                          📈 Charts
-                        </button>
-                        <button
-                          onClick={() => fetchLogs(container)}
-                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg whitespace-nowrap"
-                        >
-                          📋 Logs
-                        </button>
-                        <button
-                          onClick={() => handleAction(container.Id, 'restart')}
-                          className="px-4 py-2 text-sm bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition-colors shadow-lg whitespace-nowrap"
-                        >
-                          🔄 Restart
-                        </button>
-                        <button
-                          onClick={() => handleAction(container.Id, 'stop')}
-                          className="px-4 py-2 text-sm bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors shadow-lg whitespace-nowrap"
-                        >
-                          ⏹️ Stop
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => fetchLogs(container)}
-                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg whitespace-nowrap"
-                        >
-                          📋 Logs
-                        </button>
-                        <button
-                          onClick={() => handleAction(container.Id, 'start')}
-                          className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-lg whitespace-nowrap"
-                        >
-                          ▶️ Start
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  {!bulkMode && (
+                    <div className="flex flex-col gap-2 flex-shrink-0">
+                      {container.State === 'running' ? (
+                        <>
+                          <button
+                            onClick={() => fetchStats(container)}
+                            className="px-4 py-2 text-sm bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors shadow-lg whitespace-nowrap"
+                          >
+                            📊 Stats
+                          </button>
+                          <button
+                            onClick={() => setSelectedContainerCharts(container)}
+                            className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg whitespace-nowrap"
+                          >
+                            📈 Charts
+                          </button>
+                          <button
+                            onClick={() => fetchLogs(container)}
+                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg whitespace-nowrap"
+                          >
+                            📋 Logs
+                          </button>
+                          <button
+                            onClick={() => handleAction(container.Id, 'restart')}
+                            className="px-4 py-2 text-sm bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition-colors shadow-lg whitespace-nowrap"
+                          >
+                            🔄 Restart
+                          </button>
+                          <button
+                            onClick={() => handleAction(container.Id, 'stop')}
+                            className="px-4 py-2 text-sm bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors shadow-lg whitespace-nowrap"
+                          >
+                            ⏹️ Stop
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => fetchLogs(container)}
+                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg whitespace-nowrap"
+                          >
+                            📋 Logs
+                          </button>
+                          <button
+                            onClick={() => handleAction(container.Id, 'start')}
+                            className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-lg whitespace-nowrap"
+                          >
+                            ▶️ Start
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-            ))
+            ))}
+            </>
           )}
         </div>
       </div>
