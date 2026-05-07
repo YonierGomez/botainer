@@ -240,7 +240,11 @@ func (s *Server) handleContainerMetrics(w http.ResponseWriter, r *http.Request) 
 	}
 	
 	metrics := s.metricsStore.GetLast(id, duration)
-	s.sendJSON(w, http.StatusOK, metrics)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    metrics,
+	})
 }
 
 func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +258,11 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	metrics := s.metricsStore.GetLast("", duration)
-	s.sendJSON(w, http.StatusOK, metrics)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    metrics,
+	})
 }
 
 // Network handlers
