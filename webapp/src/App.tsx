@@ -945,7 +945,7 @@ function App() {
       {/* Historical Charts Modal */}
       {selectedContainerCharts && (
         <HistoricalCharts
-          containerId={selectedContainerCharts.Id}
+          containerId={selectedContainerCharts.Id.substring(0, 12)}
           containerName={selectedContainerCharts.Names[0]?.replace('/', '')}
           onClose={() => setSelectedContainerCharts(null)}
           getAuthHeaders={getAuthHeaders}
