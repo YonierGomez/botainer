@@ -31,36 +31,54 @@
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
-## ✨ Mini App Features (v2.2)
+## ✨ Mini App Features (v2.3)
 
-The visual dashboard includes:
+The **Telegram Mini App** provides a visual web interface that opens directly inside Telegram.
 
-### 📊 Monitoring & Analytics
-- **Real-time container monitoring** - Auto-refresh every 5 seconds
-- **Historical charts** - View CPU/RAM trends over time (1h, 24h, 7d)
-- **Export metrics** - Download metrics as CSV or JSON
-- **Alerts system** - Configure CPU/RAM thresholds with Telegram notifications
-- **Live stats** - CPU and memory usage with visual graphs
-- **Colorized logs** - Automatic error detection (red), warnings (yellow), success (green)
+### Current Features (v2.3)
 
-### 🔧 Container Management
-- **Quick actions** - Start, stop, restart containers with one tap
-- **Bulk operations** - Select multiple containers and execute batch actions (start, stop, restart, delete)
-- **Container creator** - Visual form to create new containers with all options
-- **Search & filters** - Find containers by name or image
-- **Container stats** - Detailed resource usage per container
+✅ **Monitoring & Analytics**
+- Real-time dashboard with auto-refresh every 5 seconds
+- Historical charts for CPU/RAM trends (1h, 24h, 7d)
+- Export metrics as CSV or JSON
+- Alerts system with CPU/RAM thresholds
+- Telegram notifications when thresholds exceeded
+- Alert history with timestamps
+- Colorized logs with automatic pattern detection
 
-### 🐳 Docker Compose & Networks
-- **Compose Manager** - Manage Docker Compose projects from the dashboard
-- **Auto-detection** - Automatically finds all compose.yaml files in /workspace
-- **Project actions** - Up, down, restart, pull for entire projects
-- **Network Visualizer** - View all Docker networks and connected containers
-- **Visual feedback** - Loading states and action confirmations
+✅ **Container Management**
+- Quick actions: Start, stop, restart with one tap
+- Bulk operations: Multi-select containers for batch actions
+  - Select All / Deselect All functionality
+  - Batch start, stop, restart, delete
+  - Confirmation dialogs for destructive actions
+- Search and filters (all, running, stopped)
+- Live status indicators (🟢 running, 🔴 stopped)
 
-### 🎨 Interface
-- **Dark theme** - Optimized for mobile viewing
-- **Responsive design** - Works on phone, tablet, desktop
-- **Secure** - Telegram authentication with user whitelist
+✅ **Docker Compose & Networks**
+- Compose Manager for all your projects
+- Auto-detection of compose.yaml files in /workspace
+- Project-level actions: Up, Down, Restart, Pull
+- Network Visualizer with topology view
+- Visual feedback and loading states
+
+✅ **Collaboration & Templates**
+- **Multi-User Support**: Role-based access control
+  - Admin: Full access including user management
+  - Operator: Manage containers (no delete/users)
+  - Viewer: Read-only access (logs, stats)
+- **Audit Log**: Track all actions with timestamps
+- **Template Library**: Save and share container configurations
+  - Public/private templates
+  - One-click deployment
+  - Usage tracking
+  - Tag-based organization
+
+✅ **Interface**
+- Dark theme optimized for mobile
+- Responsive design (phone, tablet, desktop)
+- Secure Telegram authentication
+- User whitelist via `ALLOWED_USERS`
 
 > **Note:** The Mini App is **completely optional**. The bot works perfectly without it using text commands only.
 
@@ -443,11 +461,11 @@ Commands are registered automatically on startup. If they don't appear, restart 
 
 ---
 
-## 11. Mini App (v2.2 - Released!)
+## 11. Mini App (v2.3 - Released!)
 
 The **Telegram Mini App** provides a visual web interface that opens directly inside Telegram.
 
-### Current Features (v2.2)
+### Current Features (v2.3)
 
 ✅ **Monitoring & Analytics**
 - Real-time dashboard with auto-refresh every 5 seconds
@@ -467,12 +485,25 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 - Search and filters (all, running, stopped)
 - Live status indicators (🟢 running, 🔴 stopped)
 
-✅ **Docker Compose**
+✅ **Docker Compose & Networks**
 - Compose Manager for all your projects
 - Auto-detection of compose.yaml files in /workspace
 - Project-level actions: Up, Down, Restart, Pull
+- Network Visualizer with topology view
 - Loading states and visual feedback
 - Confirmation before destructive operations
+
+✅ **Collaboration & Templates**
+- **Multi-User Support**: Role-based access control
+  - Admin: Full access including user management
+  - Operator: Manage containers (no delete/users)
+  - Viewer: Read-only access (logs, stats)
+- **Audit Log**: Track all actions with timestamps
+- **Template Library**: Save and share container configurations
+  - Public/private templates
+  - One-click deployment
+  - Usage tracking
+  - Tag-based organization
 
 ✅ **Interface**
 - Dark theme optimized for mobile
@@ -517,6 +548,19 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 3. View connected containers per network
 4. Check IP addresses
 
+**Manage Users:**
+1. Tap **👥** (users) in header
+2. View all users and their roles
+3. Change user roles with dropdown
+4. View audit log of all actions
+
+**Use Template Library:**
+1. Tap **📦** (package) in header
+2. Browse available templates
+3. Deploy with one click (enter container name)
+4. Create new templates from configurations
+5. Share public templates with team
+
 **View Historical Charts:**
 1. Tap **📈 Charts** on any running container
 2. Select time range (1h, 24h, 7d)
@@ -539,11 +583,11 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 - ✅ Visual container creation form
 - ✅ Network visualizer
 
-**Phase 2.3: Collaboration** (v2.3)
-- Multi-user access control
-- Audit log viewer
-- Shared templates
-- Team notifications
+**Phase 2.3: Collaboration** (v2.3) - 🟡 40% Complete
+- ✅ Multi-user access control
+- ✅ Audit log viewer
+- ✅ Template library
+- ⏳ Advanced update management
 
 ### Technical Architecture
 
@@ -564,6 +608,8 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 │   - Docker API integration              │
 │   - Metrics collection (every 30s)      │
 │   - Alert monitoring                    │
+│   - User management & audit log         │
+│   - Template library                    │
 └──────────────┬──────────────────────────┘
                │ Unix Socket
                ▼

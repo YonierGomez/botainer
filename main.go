@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	botVersion     = "2.2.1"                      // Mini App v2.2.1: Phase 2.2 Complete (Container Creator, Network Viz)
+	botVersion     = "2.3.0"                      // Mini App v2.3.0: Phase 2.3 Collaboration (Multi-User, Templates)
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
