@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import HistoricalCharts from './components/HistoricalCharts'
 import ExportMetrics from './components/ExportMetrics'
 import AlertsManager from './components/AlertsManager'
+import ComposeManager from './components/ComposeManager'
 
 // Version: 2.1.1 - Added Export Metrics
 
@@ -49,6 +50,7 @@ function App() {
   const [selectedContainerCharts, setSelectedContainerCharts] = useState<Container | null>(null)
   const [showExportMetrics, setShowExportMetrics] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
+  const [showCompose, setShowCompose] = useState(false)
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [logs, setLogs] = useState<string>('')
@@ -349,6 +351,15 @@ function App() {
               </div>
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={() => setShowCompose(true)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="Docker Compose Manager"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </button>
               <button
                 onClick={() => {
                   setBulkMode(!bulkMode)
@@ -831,6 +842,14 @@ function App() {
         <AlertsManager
           containers={containers}
           onClose={() => setShowAlerts(false)}
+          getAuthHeaders={getAuthHeaders}
+        />
+      )}
+
+      {/* Compose Manager Modal */}
+      {showCompose && (
+        <ComposeManager
+          onClose={() => setShowCompose(false)}
           getAuthHeaders={getAuthHeaders}
         />
       )}

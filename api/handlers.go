@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -249,6 +252,74 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	metrics := s.metricsStore.GetLast("", duration)
 	s.sendJSON(w, http.StatusOK, metrics)
+}
+
+// Docker Compose handlers
+func (s *Server) handleListComposeProjects(w http.ResponseWriter, r *http.Request) {
+	workspace := r.URL.Query().Get("workspace")
+	if workspace == "" {
+		workspace = "/workspace"
+	}
+
+	projects := make([]map[string]interface{}, 0)
+	
+	// Find compose files
+	filepath.Walk(workspace, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if info.Name() == "docker-compose.yml" || info.Name() == "compose.yaml" {
+			dir := filepath.Dir(path)
+			projectName := filepath.Base(dir)
+			
+			projects = append(projects, map[string]interface{}{
+				"name": projectName,
+				"path": dir,
+				"file": path,
+			})
+		}
+		return nil
+	})
+
+	s.sendJSON(w, http.StatusOK, projects)
+}
+
+func (s *Server) handleComposeAction(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path   string `json:"path"`
+		Action string `json:"action"` // up, down, restart, pull, ps
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.sendError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	var cmd *exec.Cmd
+	switch req.Action {
+	case "up":
+		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "up", "-d")
+	case "down":
+		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "down")
+	case "restart":
+		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "restart")
+	case "pull":
+		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "pull")
+	case "ps":
+		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "ps", "--format", "json")
+	default:
+		s.sendError(w, http.StatusBadRequest, "Invalid action")
+		return
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, string(output))
+		return
+	}
+
+	s.sendJSON(w, http.StatusOK, map[string]string{
+		"output": string(output),
+	})
 }
 
 // Bulk operations handler
