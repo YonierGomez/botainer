@@ -52,6 +52,9 @@ function App() {
   const [selectedContainerLogs, setSelectedContainerLogs] = useState<Container | null>(null)
   const [selectedContainerStats, setSelectedContainerStats] = useState<Container | null>(null)
   const [selectedContainerCharts, setSelectedContainerCharts] = useState<Container | null>(null)
+  const [selectedContainerInspect, setSelectedContainerInspect] = useState<Container | null>(null)
+  const [inspectData, setInspectData] = useState<any>(null)
+  const [loadingInspect, setLoadingInspect] = useState(false)
   const [showExportMetrics, setShowExportMetrics] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
@@ -226,6 +229,29 @@ function App() {
       setLogs('Error: ' + (err instanceof Error ? err.message : 'Unknown error'))
     } finally {
       setLoadingLogs(false)
+    }
+  }
+
+  const fetchInspect = async (container: Container) => {
+    setSelectedContainerInspect(container)
+    setLoadingInspect(true)
+    setInspectData(null)
+    
+    try {
+      const response = await fetch(`/api/containers/${container.Id}/inspect`, {
+        headers: getAuthHeaders()
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        setInspectData(result.data)
+      } else {
+        setInspectData({ error: result.error || 'Failed to inspect container' })
+      }
+    } catch (err) {
+      setInspectData({ error: err instanceof Error ? err.message : 'Unknown error' })
+    } finally {
+      setLoadingInspect(false)
     }
   }
 
@@ -631,6 +657,12 @@ function App() {
                               📋 Logs
                             </button>
                             <button
+                              onClick={() => fetchInspect(container)}
+                              className="px-2.5 py-1 text-[11px] bg-cyan-600 text-white rounded font-semibold hover:bg-cyan-700 transition-colors"
+                            >
+                              🔍 Inspect
+                            </button>
+                            <button
                               onClick={() => handleAction(container.Id, 'restart')}
                               className="px-2.5 py-1 text-[11px] bg-amber-600 text-white rounded font-semibold hover:bg-amber-700 transition-colors"
                             >
@@ -660,6 +692,12 @@ function App() {
                               className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition-colors"
                             >
                               📋 Logs
+                            </button>
+                            <button
+                              onClick={() => fetchInspect(container)}
+                              className="px-2.5 py-1 text-[11px] bg-cyan-600 text-white rounded font-semibold hover:bg-cyan-700 transition-colors"
+                            >
+                              🔍 Inspect
                             </button>
                             <button
                               onClick={() => handleAction(container.Id, 'start')}
@@ -835,6 +873,66 @@ function App() {
               </button>
               <button
                 onClick={() => setSelectedContainerLogs(null)}
+                className="flex-1 px-4 py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inspect Modal */}
+      {selectedContainerInspect && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-gray-900 w-full sm:max-w-4xl sm:rounded-2xl shadow-2xl border border-gray-700 flex flex-col max-h-screen sm:max-h-[90vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-700">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🔍</span>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Container Inspect</h2>
+                  <p className="text-sm text-gray-400">{selectedContainerInspect.Names[0]?.replace('/', '')}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedContainerInspect(null)}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Inspect Content */}
+            <div className="flex-1 overflow-auto p-4">
+              {loadingInspect ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-cyan-500 border-t-transparent"></div>
+                    <p className="mt-4 text-gray-400">Loading inspect data...</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs sm:text-sm font-mono bg-gray-950 p-4 rounded-xl border border-gray-800">
+                  <pre className="text-gray-300 whitespace-pre-wrap break-words">
+                    {JSON.stringify(inspectData, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-700 flex gap-2">
+              <button
+                onClick={() => fetchInspect(selectedContainerInspect)}
+                className="flex-1 px-4 py-3 bg-cyan-600 text-white rounded-xl font-semibold hover:bg-cyan-700 transition-colors"
+              >
+                🔄 Refresh
+              </button>
+              <button
+                onClick={() => setSelectedContainerInspect(null)}
                 className="flex-1 px-4 py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-700 transition-colors"
               >
                 Close
