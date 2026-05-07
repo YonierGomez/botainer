@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 	"github.com/gorilla/mux"
@@ -726,4 +728,68 @@ func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 	
 	s.templateStore.IncrementUsage(id)
 	s.sendJSON(w, http.StatusCreated, map[string]string{"id": resp.ID, "message": "Container deployed from template"})
+}
+
+// Check for container image updates
+func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	containers, err := s.docker.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, "Failed to list containers")
+		return
+	}
+
+	type UpdateInfo struct {
+		ContainerName string `json:"container_name"`
+		CurrentImage  string `json:"current_image"`
+		HasUpdate     bool   `json:"has_update"`
+		NewDigest     string `json:"new_digest,omitempty"`
+	}
+
+	updates := []UpdateInfo{}
+	
+	// Group containers by image
+	imageMap := make(map[string][]string)
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		inspect, _ := s.docker.ContainerInspect(ctx, c.ID)
+		imageTag := inspect.Config.Image
+		imageMap[imageTag] = append(imageMap[imageTag], name)
+	}
+
+	// Check each unique image
+	for imageTag, containerNames := range imageMap {
+		// Get local image ID
+		inspect, _ := s.docker.ContainerInspect(ctx, containerNames[0])
+		localID := inspect.Image
+
+		// Pull latest
+		reader, err := s.docker.ImagePull(ctx, imageTag, image.PullOptions{})
+		if err == nil {
+			io.Copy(io.Discard, reader)
+			reader.Close()
+		}
+
+		// Get new image ID
+		imgInspect, _, _ := s.docker.ImageInspectWithRaw(ctx, imageTag)
+		newID := imgInspect.ID
+
+		// Check if update available
+		hasUpdate := localID != "" && newID != "" && localID != newID
+
+		for _, name := range containerNames {
+			updates = append(updates, UpdateInfo{
+				ContainerName: name,
+				CurrentImage:  imageTag,
+				HasUpdate:     hasUpdate,
+				NewDigest:     newID,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    updates,
+	})
 }

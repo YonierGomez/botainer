@@ -255,6 +255,29 @@ function App() {
     }
   }
 
+  const handleCheckUpdates = async () => {
+    try {
+      const response = await fetch('/api/updates/check', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        const updates = result.data.filter((u: any) => u.has_update)
+        if (updates.length > 0) {
+          alert(`Found ${updates.length} update(s):\n\n${updates.map((u: any) => `• ${u.container_name}`).join('\n')}`)
+        } else {
+          alert('✅ All containers are up to date!')
+        }
+      } else {
+        alert('Error checking updates: ' + (result.error || 'Unknown error'))
+      }
+    } catch (err) {
+      alert('Error: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    }
+  }
+
   const colorizeLog = (line: string) => {
     const lower = line.toLowerCase()
     
@@ -451,6 +474,9 @@ function App() {
                       </button>
                       <button onClick={() => { setShowExportMetrics(true); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2">
                         <span>📥</span> Export Metrics
+                      </button>
+                      <button onClick={() => { handleCheckUpdates(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2">
+                        <span>🔄</span> Check Updates
                       </button>
                     </div>
                   </>
