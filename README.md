@@ -46,13 +46,15 @@ The visual dashboard includes:
 ### 🔧 Container Management
 - **Quick actions** - Start, stop, restart containers with one tap
 - **Bulk operations** - Select multiple containers and execute batch actions (start, stop, restart, delete)
+- **Container creator** - Visual form to create new containers with all options
 - **Search & filters** - Find containers by name or image
 - **Container stats** - Detailed resource usage per container
 
-### 🐳 Docker Compose
+### 🐳 Docker Compose & Networks
 - **Compose Manager** - Manage Docker Compose projects from the dashboard
 - **Auto-detection** - Automatically finds all compose.yaml files in /workspace
 - **Project actions** - Up, down, restart, pull for entire projects
+- **Network Visualizer** - View all Docker networks and connected containers
 - **Visual feedback** - Loading states and action confirmations
 
 ### 🎨 Interface
@@ -500,7 +502,20 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 **Manage Compose Projects:**
 1. Tap **🐳** (stack) in header
 2. See all detected Compose projects
-3. Execute: Up, Restart, Pull, Down
+3. Execute actions: Up, Restart, Pull, Down
+4. Confirmation required for Down action
+
+**Create New Container:**
+1. Tap **+** (plus) in header
+2. Fill in container details (name, image, ports, etc.)
+3. Configure network and restart policy
+4. Tap Create & Start
+
+**View Network Topology:**
+1. Tap **🌐** (globe) in header
+2. See all Docker networks
+3. View connected containers per network
+4. Check IP addresses
 
 **View Historical Charts:**
 1. Tap **📈 Charts** on any running container
@@ -518,11 +533,11 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 - ✅ Configurable alerts (CPU/RAM thresholds)
 - ✅ Telegram notifications for alerts
 
-**Phase 2.2: Advanced Management** (v2.2) - ✅ 75% Complete
+**Phase 2.2: Advanced Management** (v2.2) - ✅ 100% Complete
 - ✅ Bulk operations (start/stop/restart/delete multiple containers)
 - ✅ Docker Compose project management
-- ⏳ Visual container creation form
-- ⏳ Network visualizer
+- ✅ Visual container creation form
+- ✅ Network visualizer
 
 **Phase 2.3: Collaboration** (v2.3)
 - Multi-user access control
