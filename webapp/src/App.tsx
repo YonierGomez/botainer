@@ -4,6 +4,7 @@ import ExportMetrics from './components/ExportMetrics'
 import AlertsManager from './components/AlertsManager'
 import ComposeManager from './components/ComposeManager'
 import ContainerCreator from './components/ContainerCreator'
+import NetworkVisualizer from './components/NetworkVisualizer'
 
 // Version: 2.1.1 - Added Export Metrics
 
@@ -53,6 +54,7 @@ function App() {
   const [showAlerts, setShowAlerts] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
   const [showCreator, setShowCreator] = useState(false)
+  const [showNetworks, setShowNetworks] = useState(false)
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [logs, setLogs] = useState<string>('')
@@ -353,6 +355,15 @@ function App() {
               </div>
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={() => setShowNetworks(true)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="Network Visualizer"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                </svg>
+              </button>
               <button
                 onClick={() => setShowCreator(true)}
                 className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
@@ -870,6 +881,14 @@ function App() {
         <ContainerCreator
           onClose={() => setShowCreator(false)}
           onSuccess={() => fetchContainers()}
+          getAuthHeaders={getAuthHeaders}
+        />
+      )}
+
+      {/* Network Visualizer Modal */}
+      {showNetworks && (
+        <NetworkVisualizer
+          onClose={() => setShowNetworks(false)}
           getAuthHeaders={getAuthHeaders}
         />
       )}

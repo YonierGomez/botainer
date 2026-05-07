@@ -256,6 +256,39 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	s.sendJSON(w, http.StatusOK, metrics)
 }
 
+// Network handlers
+func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	networks, err := s.docker.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Get containers for each network
+	result := make([]map[string]interface{}, 0)
+	for _, net := range networks {
+		containers := make([]map[string]string, 0)
+		for id, endpoint := range net.Containers {
+			containers = append(containers, map[string]string{
+				"id":   id[:12],
+				"name": endpoint.Name,
+				"ipv4": endpoint.IPv4Address,
+			})
+		}
+		
+		result = append(result, map[string]interface{}{
+			"id":         net.ID[:12],
+			"name":       net.Name,
+			"driver":     net.Driver,
+			"scope":      net.Scope,
+			"containers": containers,
+		})
+	}
+
+	s.sendJSON(w, http.StatusOK, result)
+}
+
 // Container creation handler
 func (s *Server) handleCreateContainer(w http.ResponseWriter, r *http.Request) {
 	var req struct {

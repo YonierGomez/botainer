@@ -68,6 +68,9 @@ func (s *Server) routes() {
 	// Bulk operations
 	api.HandleFunc("/bulk", s.handleBulkAction).Methods("POST")
 	
+	// Networks
+	api.HandleFunc("/networks", s.handleListNetworks).Methods("GET")
+	
 	// Docker Compose endpoints
 	api.HandleFunc("/compose/projects", s.handleListComposeProjects).Methods("GET")
 	api.HandleFunc("/compose/action", s.handleComposeAction).Methods("POST")
