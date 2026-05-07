@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -732,12 +733,16 @@ func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 
 // Check for container image updates
 func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
+	log.Println("Check updates requested")
 	ctx := context.Background()
 	containers, err := s.docker.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
+		log.Printf("Error listing containers: %v", err)
 		s.sendError(w, http.StatusInternalServerError, "Failed to list containers")
 		return
 	}
+
+	log.Printf("Found %d containers to check", len(containers))
 
 	type UpdateInfo struct {
 		ContainerName string `json:"container_name"`
@@ -757,8 +762,12 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 		imageMap[imageTag] = append(imageMap[imageTag], name)
 	}
 
+	log.Printf("Checking %d unique images", len(imageMap))
+
 	// Check each unique image
 	for imageTag, containerNames := range imageMap {
+		log.Printf("Checking image: %s", imageTag)
+		
 		// Get local image ID
 		inspect, _ := s.docker.ContainerInspect(ctx, containerNames[0])
 		localID := inspect.Image
@@ -768,6 +777,8 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			io.Copy(io.Discard, reader)
 			reader.Close()
+		} else {
+			log.Printf("Error pulling %s: %v", imageTag, err)
 		}
 
 		// Get new image ID
@@ -776,6 +787,10 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 
 		// Check if update available
 		hasUpdate := localID != "" && newID != "" && localID != newID
+
+		if hasUpdate {
+			log.Printf("Update found for %s", imageTag)
+		}
 
 		for _, name := range containerNames {
 			updates = append(updates, UpdateInfo{
@@ -786,6 +801,8 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+
+	log.Printf("Check complete. Total updates: %d", len(updates))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

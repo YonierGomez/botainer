@@ -256,25 +256,37 @@ function App() {
   }
 
   const handleCheckUpdates = async () => {
+    const loadingMsg = 'Checking for updates...'
+    
+    // Show loading immediately
+    if (!confirm(loadingMsg + '\n\nThis may take a few seconds. Continue?')) {
+      return
+    }
+
     try {
       const response = await fetch('/api/updates/check', {
         method: 'POST',
         headers: getAuthHeaders()
       })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
       const result = await response.json()
       
       if (result.success) {
         const updates = result.data.filter((u: any) => u.has_update)
         if (updates.length > 0) {
-          alert(`Found ${updates.length} update(s):\n\n${updates.map((u: any) => `• ${u.container_name}`).join('\n')}`)
+          alert(`✅ Found ${updates.length} update(s):\n\n${updates.map((u: any) => `• ${u.container_name}\n  ${u.current_image}`).join('\n\n')}`)
         } else {
           alert('✅ All containers are up to date!')
         }
       } else {
-        alert('Error checking updates: ' + (result.error || 'Unknown error'))
+        alert('❌ Error: ' + (result.error || 'Unknown error'))
       }
     } catch (err) {
-      alert('Error: ' + (err instanceof Error ? err.message : 'Unknown error'))
+      alert('❌ Failed to check updates:\n' + (err instanceof Error ? err.message : 'Unknown error'))
     }
   }
 
