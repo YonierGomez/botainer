@@ -735,20 +735,19 @@ func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	log.Println("Check updates requested")
 	ctx := context.Background()
-	containers, err := s.docker.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := s.docker.ContainerList(ctx, container.ListOptions{All: false}) // Only running
 	if err != nil {
 		log.Printf("Error listing containers: %v", err)
 		s.sendError(w, http.StatusInternalServerError, "Failed to list containers")
 		return
 	}
 
-	log.Printf("Found %d containers to check", len(containers))
+	log.Printf("Found %d running containers to check", len(containers))
 
 	type UpdateInfo struct {
 		ContainerName string `json:"container_name"`
 		CurrentImage  string `json:"current_image"`
-		HasUpdate     bool   `json:"has_update"`
-		NewDigest     string `json:"new_digest,omitempty"`
+		Status        string `json:"status"`
 	}
 
 	updates := []UpdateInfo{}
@@ -764,31 +763,49 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Checking %d unique images", len(imageMap))
 
-	// Check each unique image
+	// Check each unique image (limit to 20 to avoid timeout)
+	count := 0
 	for imageTag, containerNames := range imageMap {
+		if count >= 20 {
+			log.Printf("Reached limit of 20 images, skipping rest")
+			break
+		}
+		count++
+		
 		log.Printf("Checking image: %s", imageTag)
 		
 		// Get local image ID
 		inspect, _ := s.docker.ContainerInspect(ctx, containerNames[0])
 		localID := inspect.Image
 
-		// Pull latest
-		reader, err := s.docker.ImagePull(ctx, imageTag, image.PullOptions{})
+		// Quick pull check with timeout
+		pullCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		reader, err := s.docker.ImagePull(pullCtx, imageTag, image.PullOptions{})
 		if err == nil {
 			io.Copy(io.Discard, reader)
 			reader.Close()
 		} else {
 			log.Printf("Error pulling %s: %v", imageTag, err)
+			cancel()
+			for _, name := range containerNames {
+				updates = append(updates, UpdateInfo{
+					ContainerName: name,
+					CurrentImage:  imageTag,
+					Status:        "error",
+				})
+			}
+			continue
 		}
+		cancel()
 
 		// Get new image ID
 		imgInspect, _, _ := s.docker.ImageInspectWithRaw(ctx, imageTag)
 		newID := imgInspect.ID
 
 		// Check if update available
-		hasUpdate := localID != "" && newID != "" && localID != newID
-
-		if hasUpdate {
+		status := "up-to-date"
+		if localID != "" && newID != "" && localID != newID {
+			status = "update-available"
 			log.Printf("Update found for %s", imageTag)
 		}
 
@@ -796,13 +813,12 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 			updates = append(updates, UpdateInfo{
 				ContainerName: name,
 				CurrentImage:  imageTag,
-				HasUpdate:     hasUpdate,
-				NewDigest:     newID,
+				Status:        status,
 			})
 		}
 	}
 
-	log.Printf("Check complete. Total updates: %d", len(updates))
+	log.Printf("Check complete. Total containers checked: %d", len(updates))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

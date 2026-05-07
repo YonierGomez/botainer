@@ -259,14 +259,14 @@ function App() {
     const loadingMsg = 'Checking for updates...'
     
     // Show loading immediately
-    if (!confirm(loadingMsg + '\n\nThis may take 30-60 seconds. Continue?')) {
+    if (!confirm(loadingMsg + '\n\nChecking running containers (max 20). This may take 30 seconds. Continue?')) {
       return
     }
 
     try {
-      // Increase timeout to 2 minutes
+      // Increase timeout to 90 seconds
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 120000)
+      const timeoutId = setTimeout(() => controller.abort(), 90000)
 
       const response = await fetch('/api/updates/check', {
         method: 'POST',
@@ -283,18 +283,27 @@ function App() {
       const result = await response.json()
       
       if (result.success) {
-        const updates = result.data.filter((u: any) => u.has_update)
+        const updates = result.data.filter((u: any) => u.status === 'update-available')
+        const errors = result.data.filter((u: any) => u.status === 'error')
+        
+        let message = ''
         if (updates.length > 0) {
-          alert(`✅ Found ${updates.length} update(s):\n\n${updates.map((u: any) => `• ${u.container_name}\n  ${u.current_image}`).join('\n\n')}`)
+          message = `✅ Found ${updates.length} update(s):\n\n${updates.map((u: any) => `• ${u.container_name}\n  ${u.current_image}`).join('\n\n')}`
         } else {
-          alert('✅ All containers are up to date!')
+          message = '✅ All containers are up to date!'
         }
+        
+        if (errors.length > 0) {
+          message += `\n\n⚠️ ${errors.length} container(s) could not be checked`
+        }
+        
+        alert(message)
       } else {
         alert('❌ Error: ' + (result.error || 'Unknown error'))
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        alert('⏱️ Request timed out. Try again or check fewer containers.')
+        alert('⏱️ Request timed out. The server may be busy.')
       } else {
         alert('❌ Failed to check updates:\n' + (err instanceof Error ? err.message : 'Unknown error'))
       }
