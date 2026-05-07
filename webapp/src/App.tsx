@@ -41,11 +41,11 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterState, setFilterState] = useState<'all' | 'running' | 'stopped'>('all')
-  const [selectedContainer, setSelectedContainer] = useState<Container | null>(null)
+  const [selectedContainerLogs, setSelectedContainerLogs] = useState<Container | null>(null)
+  const [selectedContainerStats, setSelectedContainerStats] = useState<Container | null>(null)
   const [logs, setLogs] = useState<string>('')
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
-  const [showStats, setShowStats] = useState(false)
   const [stats, setStats] = useState<any>(null)
   const [loadingStats, setLoadingStats] = useState(false)
 
@@ -143,7 +143,7 @@ function App() {
   }
 
   const fetchLogs = async (container: Container) => {
-    setSelectedContainer(container)
+    setSelectedContainerLogs(container)
     setLoadingLogs(true)
     setLogs('')
     
@@ -165,9 +165,33 @@ function App() {
     }
   }
 
+  const colorizeLog = (line: string) => {
+    const lower = line.toLowerCase()
+    
+    // Error patterns
+    if (lower.includes('error') || lower.includes('exception') || lower.includes('fatal') || 
+        lower.includes('panic') || lower.includes('failed') || lower.includes('failure')) {
+      return 'text-red-400'
+    }
+    // Warning patterns
+    if (lower.includes('warn') || lower.includes('warning') || lower.includes('deprecated')) {
+      return 'text-yellow-400'
+    }
+    // Success patterns
+    if (lower.includes('success') || lower.includes('complete') || lower.includes('started') ||
+        lower.includes('listening') || lower.includes('ready')) {
+      return 'text-green-400'
+    }
+    // Info patterns
+    if (lower.includes('info') || lower.includes('debug')) {
+      return 'text-blue-400'
+    }
+    
+    return 'text-gray-300'
+  }
+
   const fetchStats = async (container: Container) => {
-    setSelectedContainer(container)
-    setShowStats(true)
+    setSelectedContainerStats(container)
     setLoadingStats(true)
     setStats(null)
     
@@ -469,7 +493,7 @@ function App() {
       </div>
 
       {/* Stats Modal */}
-      {showStats && selectedContainer && (
+      {selectedContainerStats && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-gray-900 w-full sm:max-w-2xl sm:rounded-2xl shadow-2xl border border-gray-700">
             {/* Header */}
@@ -478,11 +502,11 @@ function App() {
                 <span className="text-2xl">📊</span>
                 <div>
                   <h2 className="text-lg font-bold text-white">Container Stats</h2>
-                  <p className="text-sm text-gray-400">{selectedContainer.Names[0]?.replace('/', '')}</p>
+                  <p className="text-sm text-gray-400">{selectedContainerStats.Names[0]?.replace('/', '')}</p>
                 </div>
               </div>
               <button
-                onClick={() => setShowStats(false)}
+                onClick={() => setSelectedContainerStats(null)}
                 className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
               >
                 <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -526,7 +550,7 @@ function App() {
                     <div className="flex justify-between mb-2">
                       <span className="text-gray-300 font-medium">Memory Usage</span>
                       <span className="text-white font-bold">
-                        {stats.memory_usage?.toFixed(0)} MB / {stats.memory_limit?.toFixed(0)} MB
+                        {stats.memory_usage?.toFixed(2)} GB / {stats.memory_limit?.toFixed(2)} GB
                         ({stats.memory_percent?.toFixed(1)}%)
                       </span>
                     </div>
@@ -544,13 +568,13 @@ function App() {
             {/* Footer */}
             <div className="p-4 border-t border-gray-700 flex gap-2">
               <button
-                onClick={() => fetchStats(selectedContainer)}
+                onClick={() => fetchStats(selectedContainerStats)}
                 className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors"
               >
                 🔄 Refresh
               </button>
               <button
-                onClick={() => setShowStats(false)}
+                onClick={() => setSelectedContainerStats(null)}
                 className="flex-1 px-4 py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-700 transition-colors"
               >
                 Close
@@ -561,7 +585,7 @@ function App() {
       )}
 
       {/* Logs Modal */}
-      {selectedContainer && (
+      {selectedContainerLogs && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-gray-900 w-full sm:max-w-4xl sm:rounded-2xl shadow-2xl border border-gray-700 flex flex-col max-h-screen sm:max-h-[90vh]">
             {/* Header */}
@@ -570,11 +594,11 @@ function App() {
                 <span className="text-2xl">📋</span>
                 <div>
                   <h2 className="text-lg font-bold text-white">Container Logs</h2>
-                  <p className="text-sm text-gray-400">{selectedContainer.Names[0]?.replace('/', '')}</p>
+                  <p className="text-sm text-gray-400">{selectedContainerLogs.Names[0]?.replace('/', '')}</p>
                 </div>
               </div>
               <button
-                onClick={() => setSelectedContainer(null)}
+                onClick={() => setSelectedContainerLogs(null)}
                 className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
               >
                 <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -593,22 +617,26 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <pre className="text-xs sm:text-sm text-gray-300 font-mono whitespace-pre-wrap break-words bg-gray-950 p-4 rounded-xl border border-gray-800">
-                  {logs}
-                </pre>
+                <div className="text-xs sm:text-sm font-mono bg-gray-950 p-4 rounded-xl border border-gray-800">
+                  {logs.split('\n').map((line, i) => (
+                    <div key={i} className={colorizeLog(line)}>
+                      {line || '\u00A0'}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
             {/* Footer */}
             <div className="p-4 border-t border-gray-700 flex gap-2">
               <button
-                onClick={() => fetchLogs(selectedContainer)}
+                onClick={() => fetchLogs(selectedContainerLogs)}
                 className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors"
               >
                 🔄 Refresh
               </button>
               <button
-                onClick={() => setSelectedContainer(null)}
+                onClick={() => setSelectedContainerLogs(null)}
                 className="flex-1 px-4 py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-700 transition-colors"
               >
                 Close

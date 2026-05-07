@@ -102,11 +102,17 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 	
+	// Get tail parameter from query string
+	tail := r.URL.Query().Get("tail")
+	if tail == "" {
+		tail = "100"
+	}
+	
 	ctx := context.Background()
 	options := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Tail:       "100",
+		Tail:       tail,
 	}
 	
 	logs, err := s.docker.ContainerLogs(ctx, id, options)
@@ -116,19 +122,42 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer logs.Close()
 	
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusOK)
-	// Copy logs to response
+	// Read all logs into a string
+	// Docker logs use a multiplexed stream format with 8-byte headers
+	var logContent string
 	buf := make([]byte, 8192)
 	for {
 		n, err := logs.Read(buf)
 		if n > 0 {
-			w.Write(buf[:n])
+			// Process the buffer, skipping Docker's 8-byte headers
+			i := 0
+			for i < n {
+				if i+8 > n {
+					break
+				}
+				// Read the 4-byte size from header (bytes 4-7)
+				size := int(buf[i+4])<<24 | int(buf[i+5])<<16 | int(buf[i+6])<<8 | int(buf[i+7])
+				i += 8
+				if i+size > n {
+					// Partial message, add what we have
+					logContent += string(buf[i:n])
+					break
+				}
+				logContent += string(buf[i : i+size])
+				i += size
+			}
 		}
 		if err != nil {
 			break
 		}
 	}
+	
+	if logContent == "" {
+		logContent = "No logs available"
+	}
+	
+	// Return as JSON
+	s.sendJSON(w, http.StatusOK, logContent)
 }
 
 func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
@@ -160,19 +189,23 @@ func (s *Server) handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Calculate CPU percentage
+	cpuPercent := 0.0
 	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
-	cpuPercent := 0.0
+	numCPUs := float64(len(v.CPUStats.CPUUsage.PercpuUsage))
+	if numCPUs == 0 {
+		numCPUs = 1
+	}
 	if systemDelta > 0 && cpuDelta > 0 {
-		cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+		cpuPercent = (cpuDelta / systemDelta) * numCPUs * 100.0
 	}
 	
-	// Calculate memory
-	memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024 // MB
-	memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024 // MB
+	// Calculate memory in GB
+	memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024 / 1024
+	memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024 / 1024
 	memPercent := 0.0
 	if memLimit > 0 {
-		memPercent = (float64(v.MemoryStats.Usage) / float64(v.MemoryStats.Limit)) * 100.0
+		memPercent = (memUsage / memLimit) * 100.0
 	}
 	
 	result := map[string]interface{}{
