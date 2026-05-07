@@ -435,98 +435,74 @@ function App() {
         </div>
       </div>
 
-      <div className="px-3 py-4 space-y-4">
-        {/* Search and Filters */}
-        <div className="space-y-3">
+      <div className="max-w-6xl mx-auto px-3 py-3 space-y-3">
+        {/* Search and Filters - Inline */}
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Search Bar */}
-          <div className="relative">
+          <div className="relative flex-1 min-w-[200px]">
             <input
               type="text"
-              placeholder="Search containers..."
+              placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-3 pl-11 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full px-3 py-2 pl-9 bg-gray-800/80 border border-gray-700/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
             />
-            <svg className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-3 text-gray-500 hover:text-gray-300"
+                className="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             )}
           </div>
 
-          {/* Filter Buttons */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFilterState('all')}
-              className={`flex-1 px-4 py-2 rounded-xl font-semibold transition-colors ${
-                filterState === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              All ({containers.length})
-            </button>
-            <button
-              onClick={() => setFilterState('running')}
-              className={`flex-1 px-4 py-2 rounded-xl font-semibold transition-colors ${
-                filterState === 'running'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              🟢 Running ({runningCount})
-            </button>
-            <button
-              onClick={() => setFilterState('stopped')}
-              className={`flex-1 px-4 py-2 rounded-xl font-semibold transition-colors ${
-                filterState === 'stopped'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              🔴 Stopped ({stoppedCount})
-            </button>
-          </div>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-gray-800 rounded-2xl shadow-xl p-4 border border-gray-700">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 font-medium">Running</p>
-                <p className="text-3xl font-bold text-emerald-400">{runningCount}</p>
-              </div>
-              <div className="text-4xl">🟢</div>
-            </div>
-          </div>
-          <div className="bg-gray-800 rounded-2xl shadow-xl p-4 border border-gray-700">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 font-medium">Stopped</p>
-                <p className="text-3xl font-bold text-red-400">{stoppedCount}</p>
-              </div>
-              <div className="text-4xl">🔴</div>
-            </div>
-          </div>
+          {/* Filter Chips */}
+          <button
+            onClick={() => setFilterState('all')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              filterState === 'all'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            All {containers.length}
+          </button>
+          <button
+            onClick={() => setFilterState('running')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              filterState === 'running'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            🟢 {runningCount}
+          </button>
+          <button
+            onClick={() => setFilterState('stopped')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              filterState === 'stopped'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-800/80 text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            🔴 {stoppedCount}
+          </button>
         </div>
 
         {/* Containers List */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           {filteredContainers.length === 0 ? (
-            <div className="bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-700">
-              <div className="text-6xl mb-4">
+            <div className="bg-gray-800/80 rounded-lg p-8 text-center border border-gray-700/50">
+              <div className="text-4xl mb-3">
                 {searchQuery || filterState !== 'all' ? '🔍' : '📦'}
               </div>
-              <p className="text-gray-400 font-medium">
+              <p className="text-sm text-gray-400 font-medium">
                 {searchQuery || filterState !== 'all' 
                   ? 'No containers match your filters' 
                   : 'No containers found'}
@@ -537,7 +513,7 @@ function App() {
                     setSearchQuery('')
                     setFilterState('all')
                   }}
-                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors"
+                  className="mt-3 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                 >
                   Clear filters
                 </button>
@@ -547,144 +523,145 @@ function App() {
             <>
               {/* Bulk Actions Bar */}
               {bulkMode && (
-                <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-4 mb-4">
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-white font-semibold">
-                        {selectedIds.size} selected
-                      </span>
+                <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white text-sm font-semibold">
+                      {selectedIds.size} selected
+                    </span>
+                    <div className="flex gap-2">
                       <button
                         onClick={selectAll}
-                        className="text-sm text-blue-400 hover:text-blue-300"
+                        className="text-xs text-blue-400 hover:text-blue-300"
                       >
-                        Select All
+                        All
                       </button>
                       <button
                         onClick={deselectAll}
-                        className="text-sm text-blue-400 hover:text-blue-300"
+                        className="text-xs text-blue-400 hover:text-blue-300"
                       >
-                        Deselect All
+                        None
                       </button>
                     </div>
-                    {selectedIds.size > 0 && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleBulkAction('start')}
-                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors text-sm"
-                        >
-                          ▶️ Start
-                        </button>
-                        <button
-                          onClick={() => handleBulkAction('restart')}
-                          className="px-4 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition-colors text-sm"
-                        >
-                          🔄 Restart
-                        </button>
-                        <button
-                          onClick={() => handleBulkAction('stop')}
-                          className="px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors text-sm"
-                        >
-                          ⏹️ Stop
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete ${selectedIds.size} containers?`)) {
-                              handleBulkAction('delete')
-                            }
-                          }}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors text-sm"
-                        >
-                          🗑️ Delete
-                        </button>
-                      </div>
-                    )}
                   </div>
+                  {selectedIds.size > 0 && (
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => handleBulkAction('start')}
+                        className="flex-1 px-2 py-1.5 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700 transition-colors"
+                      >
+                        ▶️ Start
+                      </button>
+                      <button
+                        onClick={() => handleBulkAction('restart')}
+                        className="flex-1 px-2 py-1.5 bg-amber-600 text-white rounded text-xs font-semibold hover:bg-amber-700 transition-colors"
+                      >
+                        🔄 Restart
+                      </button>
+                      <button
+                        onClick={() => handleBulkAction('stop')}
+                        className="flex-1 px-2 py-1.5 bg-orange-600 text-white rounded text-xs font-semibold hover:bg-orange-700 transition-colors"
+                      >
+                        ⏹️ Stop
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete ${selectedIds.size} containers?`)) {
+                            handleBulkAction('delete')
+                          }
+                        }}
+                        className="flex-1 px-2 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 transition-colors"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
               {filteredContainers.map((container) => (
               <div
                 key={container.Id}
-                className="bg-gray-800 rounded-2xl shadow-xl p-4 border border-gray-700 hover:border-gray-600 transition-all"
+                className="bg-gray-800/80 backdrop-blur-sm rounded-lg border border-gray-700/50 p-3 hover:border-gray-600 transition-all"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start space-x-3 flex-1 min-w-0">
-                    {bulkMode && (
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(container.Id)}
-                        onChange={() => toggleSelection(container.Id)}
-                        className="mt-2 w-5 h-5 rounded border-gray-600 text-blue-600 focus:ring-blue-500"
-                      />
-                    )}
-                    <div className="flex-shrink-0 mt-1">
-                      <div className={`w-3 h-3 rounded-full ${getStatusColor(container.State)} shadow-lg`}></div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-lg">{getStatusIcon(container.State)}</span>
-                        <h3 className="font-bold text-white truncate">
-                          {container.Names[0]?.replace('/', '')}
-                        </h3>
-                      </div>
-                      <p className="text-sm text-gray-300 truncate mb-1">{container.Image}</p>
-                      <p className="text-xs text-gray-500">{container.Status}</p>
-                    </div>
-                  </div>
-
-                  {!bulkMode && (
-                    <div className="flex flex-col gap-2 flex-shrink-0">
-                      {container.State === 'running' ? (
-                        <>
-                          <button
-                            onClick={() => fetchStats(container)}
-                            className="px-4 py-2 text-sm bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors shadow-lg whitespace-nowrap"
-                          >
-                            📊 Stats
-                          </button>
-                          <button
-                            onClick={() => setSelectedContainerCharts(container)}
-                            className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg whitespace-nowrap"
-                          >
-                            📈 Charts
-                          </button>
-                          <button
-                            onClick={() => fetchLogs(container)}
-                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg whitespace-nowrap"
-                          >
-                            📋 Logs
-                          </button>
-                          <button
-                            onClick={() => handleAction(container.Id, 'restart')}
-                            className="px-4 py-2 text-sm bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition-colors shadow-lg whitespace-nowrap"
-                          >
-                            🔄 Restart
-                          </button>
-                          <button
-                            onClick={() => handleAction(container.Id, 'stop')}
-                            className="px-4 py-2 text-sm bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors shadow-lg whitespace-nowrap"
-                          >
-                            ⏹️ Stop
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => fetchLogs(container)}
-                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg whitespace-nowrap"
-                          >
-                            📋 Logs
-                          </button>
-                          <button
-                            onClick={() => handleAction(container.Id, 'start')}
-                            className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-lg whitespace-nowrap"
-                          >
-                            ▶️ Start
-                          </button>
-                        </>
-                      )}
-                    </div>
+                <div className="flex items-start gap-3">
+                  {bulkMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(container.Id)}
+                      onChange={() => toggleSelection(container.Id)}
+                      className="mt-1 w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500"
+                    />
                   )}
+                  
+                  <div className="flex-1 min-w-0">
+                    {/* Header */}
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className={`w-2 h-2 rounded-full ${getStatusColor(container.State)} flex-shrink-0`}></div>
+                      <span className="text-base">{getStatusIcon(container.State)}</span>
+                      <h3 className="font-bold text-white text-sm truncate flex-1">
+                        {container.Names[0]?.replace('/', '')}
+                      </h3>
+                    </div>
+                    
+                    {/* Info */}
+                    <p className="text-xs text-gray-400 truncate mb-1">{container.Image}</p>
+                    <p className="text-[10px] text-gray-500 mb-2">{container.Status}</p>
+                    
+                    {/* Actions */}
+                    {!bulkMode && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {container.State === 'running' ? (
+                          <>
+                            <button
+                              onClick={() => fetchStats(container)}
+                              className="px-2.5 py-1 text-[11px] bg-purple-600 text-white rounded font-semibold hover:bg-purple-700 transition-colors"
+                            >
+                              📊 Stats
+                            </button>
+                            <button
+                              onClick={() => setSelectedContainerCharts(container)}
+                              className="px-2.5 py-1 text-[11px] bg-indigo-600 text-white rounded font-semibold hover:bg-indigo-700 transition-colors"
+                            >
+                              📈 Charts
+                            </button>
+                            <button
+                              onClick={() => fetchLogs(container)}
+                              className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition-colors"
+                            >
+                              📋 Logs
+                            </button>
+                            <button
+                              onClick={() => handleAction(container.Id, 'restart')}
+                              className="px-2.5 py-1 text-[11px] bg-amber-600 text-white rounded font-semibold hover:bg-amber-700 transition-colors"
+                            >
+                              🔄 Restart
+                            </button>
+                            <button
+                              onClick={() => handleAction(container.Id, 'stop')}
+                              className="px-2.5 py-1 text-[11px] bg-red-600 text-white rounded font-semibold hover:bg-red-700 transition-colors"
+                            >
+                              ⏹️ Stop
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => fetchLogs(container)}
+                              className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition-colors"
+                            >
+                              📋 Logs
+                            </button>
+                            <button
+                              onClick={() => handleAction(container.Id, 'start')}
+                              className="px-2.5 py-1 text-[11px] bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-700 transition-colors"
+                            >
+                              ▶️ Start
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
