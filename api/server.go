@@ -23,14 +23,18 @@ type Server struct {
 	upgrader      websocket.Upgrader
 	metricsStore  *MetricsStore
 	alertStore    *AlertStore
+	userStore     *UserStore
+	templateStore *TemplateStore
 }
 
-func NewServer(dockerClient *client.Client, metricsStore *MetricsStore, alertStore *AlertStore) *Server {
+func NewServer(dockerClient *client.Client, metricsStore *MetricsStore, alertStore *AlertStore, userStore *UserStore, templateStore *TemplateStore) *Server {
 	s := &Server{
-		router:       mux.NewRouter(),
-		docker:       dockerClient,
-		metricsStore: metricsStore,
-		alertStore:   alertStore,
+		router:        mux.NewRouter(),
+		docker:        dockerClient,
+		metricsStore:  metricsStore,
+		alertStore:    alertStore,
+		userStore:     userStore,
+		templateStore: templateStore,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // TODO: Implement proper origin check
@@ -80,6 +84,18 @@ func (s *Server) routes() {
 	api.HandleFunc("/alerts/configs", s.handleSetAlertConfig).Methods("POST")
 	api.HandleFunc("/alerts/configs/{id}", s.handleDeleteAlertConfig).Methods("DELETE")
 	api.HandleFunc("/alerts/history", s.handleGetAlertHistory).Methods("GET")
+	
+	// User management endpoints
+	api.HandleFunc("/users", s.handleGetUsers).Methods("GET")
+	api.HandleFunc("/users/{id}/role", s.handleUpdateUserRole).Methods("PUT")
+	api.HandleFunc("/audit", s.handleGetAuditLog).Methods("GET")
+	
+	// Template library endpoints
+	api.HandleFunc("/templates", s.handleListTemplates).Methods("GET")
+	api.HandleFunc("/templates", s.handleCreateTemplate).Methods("POST")
+	api.HandleFunc("/templates/{id}", s.handleGetTemplate).Methods("GET")
+	api.HandleFunc("/templates/{id}", s.handleDeleteTemplate).Methods("DELETE")
+	api.HandleFunc("/templates/{id}/deploy", s.handleDeployTemplate).Methods("POST")
 	
 	// WebSocket endpoint
 	api.HandleFunc("/ws", s.handleWebSocket)

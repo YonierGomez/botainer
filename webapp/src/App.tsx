@@ -5,6 +5,8 @@ import AlertsManager from './components/AlertsManager'
 import ComposeManager from './components/ComposeManager'
 import ContainerCreator from './components/ContainerCreator'
 import NetworkVisualizer from './components/NetworkVisualizer'
+import UserManager from './components/UserManager'
+import TemplateLibrary from './components/TemplateLibrary'
 
 // Version: 2.1.1 - Added Export Metrics
 
@@ -55,6 +57,8 @@ function App() {
   const [showCompose, setShowCompose] = useState(false)
   const [showCreator, setShowCreator] = useState(false)
   const [showNetworks, setShowNetworks] = useState(false)
+  const [showUsers, setShowUsers] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [logs, setLogs] = useState<string>('')
@@ -394,6 +398,24 @@ function App() {
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowUsers(true)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="User Management"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowTemplates(true)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="Template Library"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                 </svg>
               </button>
               <button
@@ -889,6 +911,22 @@ function App() {
       {showNetworks && (
         <NetworkVisualizer
           onClose={() => setShowNetworks(false)}
+          getAuthHeaders={getAuthHeaders}
+        />
+      )}
+
+      {/* User Manager Modal */}
+      {showUsers && (
+        <UserManager
+          onClose={() => setShowUsers(false)}
+          getAuthHeaders={getAuthHeaders}
+        />
+      )}
+
+      {/* Template Library Modal */}
+      {showTemplates && (
+        <TemplateLibrary
+          onClose={() => setShowTemplates(false)}
           getAuthHeaders={getAuthHeaders}
         />
       )}

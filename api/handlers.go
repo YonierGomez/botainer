@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -541,4 +542,180 @@ func (s *Server) handleExportMetrics(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.sendJSON(w, http.StatusOK, metrics)
 	}
+}
+
+// User management handlers
+func (s *Server) handleGetUsers(w http.ResponseWriter, r *http.Request) {
+	users := s.userStore.GetUsers()
+	s.sendJSON(w, http.StatusOK, users)
+}
+
+func (s *Server) handleUpdateUserRole(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["id"]
+	
+	var req struct {
+		Role Role `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.sendError(w, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	
+	if req.Role != RoleAdmin && req.Role != RoleOperator && req.Role != RoleViewer {
+		s.sendError(w, http.StatusBadRequest, "Invalid role")
+		return
+	}
+	
+	if err := s.userStore.UpdateRole(userID, req.Role); err != nil {
+		s.sendError(w, http.StatusInternalServerError, "Failed to update role")
+		return
+	}
+	
+	s.userStore.LogAction(userID, "", "update_role", "user:"+userID, true, string(req.Role))
+	s.sendJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
+}
+
+func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	limit := 100
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = l
+		}
+	}
+	
+	logs := s.userStore.GetAuditLog(limit)
+	s.sendJSON(w, http.StatusOK, logs)
+}
+
+// Template library handlers
+func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
+	publicOnly := r.URL.Query().Get("public") == "true"
+	userID := r.URL.Query().Get("user_id")
+	templates := s.templateStore.List(userID, publicOnly)
+	s.sendJSON(w, http.StatusOK, templates)
+}
+
+func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
+	var template Template
+	if err := json.NewDecoder(r.Body).Decode(&template); err != nil {
+		s.sendError(w, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	
+	if template.Name == "" || template.Image == "" {
+		s.sendError(w, http.StatusBadRequest, "Name and image are required")
+		return
+	}
+	
+	if err := s.templateStore.Create(&template); err != nil {
+		s.sendError(w, http.StatusInternalServerError, "Failed to create template")
+		return
+	}
+	
+	s.sendJSON(w, http.StatusCreated, template)
+}
+
+func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	
+	template, exists := s.templateStore.Get(id)
+	if !exists {
+		s.sendError(w, http.StatusNotFound, "Template not found")
+		return
+	}
+	
+	s.sendJSON(w, http.StatusOK, template)
+}
+
+func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	userID := r.URL.Query().Get("user_id")
+	
+	if err := s.templateStore.Delete(id, userID); err != nil {
+		s.sendError(w, http.StatusInternalServerError, "Failed to delete template")
+		return
+	}
+	
+	s.sendJSON(w, http.StatusOK, map[string]string{"message": "Template deleted"})
+}
+
+func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	
+	template, exists := s.templateStore.Get(id)
+	if !exists {
+		s.sendError(w, http.StatusNotFound, "Template not found")
+		return
+	}
+	
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		s.sendError(w, http.StatusBadRequest, "Container name required")
+		return
+	}
+	
+	ctx := context.Background()
+	
+	// Parse ports
+	portBindings := nat.PortMap{}
+	exposedPorts := nat.PortSet{}
+	for _, portStr := range template.Ports {
+		parts := strings.Split(portStr, ":")
+		if len(parts) == 2 {
+			containerPort := nat.Port(parts[1] + "/tcp")
+			portBindings[containerPort] = []nat.PortBinding{{HostPort: parts[0]}}
+			exposedPorts[containerPort] = struct{}{}
+		}
+	}
+	
+	// Parse volumes
+	binds := template.Volumes
+	
+	// Parse env
+	env := make([]string, 0, len(template.Env))
+	for k, v := range template.Env {
+		env = append(env, k+"="+v)
+	}
+	
+	// Create container
+	resp, err := s.docker.ContainerCreate(ctx,
+		&container.Config{
+			Image:        template.Image,
+			Env:          env,
+			ExposedPorts: exposedPorts,
+		},
+		&container.HostConfig{
+			PortBindings:  portBindings,
+			Binds:         binds,
+			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyMode(template.RestartPolicy)},
+		},
+		&network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				template.Network: {},
+			},
+		},
+		nil,
+		req.Name,
+	)
+	
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create container: %v", err))
+		return
+	}
+	
+	// Start container
+	if err := s.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		s.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start container: %v", err))
+		return
+	}
+	
+	s.templateStore.IncrementUsage(id)
+	s.sendJSON(w, http.StatusCreated, map[string]string{"id": resp.ID, "message": "Container deployed from template"})
 }

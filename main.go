@@ -4054,8 +4054,14 @@ func main() {
 	// Start metrics collector (collect every 30 seconds)
 	go api.CollectMetrics(cli, metricsStore, alertStore, 30*time.Second)
 
+	// Initialize user store
+	userStore := api.NewUserStore("/data/users.json")
+
+	// Initialize template store
+	templateStore := api.NewTemplateStore("/data/templates.json")
+
 	// Start API server for Mini App
-	apiServer := api.NewServer(cli, metricsStore, alertStore)
+	apiServer := api.NewServer(cli, metricsStore, alertStore, userStore, templateStore)
 	go func() {
 		if err := apiServer.Start("8080"); err != nil {
 			log.Printf("API server error: %v", err)
