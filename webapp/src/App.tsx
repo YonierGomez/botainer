@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import HistoricalCharts from './components/HistoricalCharts'
+import ExportMetrics from './components/ExportMetrics'
 
-// Version: 2.0.1 - Fixed auto-refresh outside Telegram
+// Version: 2.1.1 - Added Export Metrics
 
 declare global {
   interface Window {
@@ -43,6 +45,8 @@ function App() {
   const [filterState, setFilterState] = useState<'all' | 'running' | 'stopped'>('all')
   const [selectedContainerLogs, setSelectedContainerLogs] = useState<Container | null>(null)
   const [selectedContainerStats, setSelectedContainerStats] = useState<Container | null>(null)
+  const [selectedContainerCharts, setSelectedContainerCharts] = useState<Container | null>(null)
+  const [showExportMetrics, setShowExportMetrics] = useState(false)
   const [logs, setLogs] = useState<string>('')
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
@@ -295,16 +299,27 @@ function App() {
                 <p className="text-xs text-gray-400">Docker Management</p>
               </div>
             </div>
-            <button
-              onClick={() => fetchContainers(false)}
-              className="p-2 hover:bg-gray-700 rounded-lg transition-colors relative"
-              title="Refresh (auto-updates every 5s)"
-            >
-              <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowExportMetrics(true)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="Export Metrics"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </button>
+              <button
+                onClick={() => fetchContainers(false)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors relative"
+                title="Refresh (auto-updates every 5s)"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -448,6 +463,12 @@ function App() {
                           className="px-4 py-2 text-sm bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors shadow-lg whitespace-nowrap"
                         >
                           📊 Stats
+                        </button>
+                        <button
+                          onClick={() => setSelectedContainerCharts(container)}
+                          className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg whitespace-nowrap"
+                        >
+                          📈 Charts
                         </button>
                         <button
                           onClick={() => fetchLogs(container)}
@@ -644,6 +665,24 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Historical Charts Modal */}
+      {selectedContainerCharts && (
+        <HistoricalCharts
+          containerId={selectedContainerCharts.Id}
+          containerName={selectedContainerCharts.Names[0]?.replace('/', '')}
+          onClose={() => setSelectedContainerCharts(null)}
+          getAuthHeaders={getAuthHeaders}
+        />
+      )}
+
+      {/* Export Metrics Modal */}
+      {showExportMetrics && (
+        <ExportMetrics
+          onClose={() => setShowExportMetrics(false)}
+          getAuthHeaders={getAuthHeaders}
+        />
       )}
     </div>
   )

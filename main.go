@@ -4019,8 +4019,14 @@ func main() {
 	}
 	defer cli.Close()
 
+	// Initialize metrics store (keep last 10080 points = 7 days at 1 minute intervals)
+	metricsStore := api.NewMetricsStore("/data/metrics.json", 10080)
+	
+	// Start metrics collector (collect every 30 seconds)
+	go api.CollectMetrics(cli, metricsStore, 30*time.Second)
+
 	// Start API server for Mini App
-	apiServer := api.NewServer(cli)
+	apiServer := api.NewServer(cli, metricsStore)
 	go func() {
 		if err := apiServer.Start("8080"); err != nil {
 			log.Printf("API server error: %v", err)
