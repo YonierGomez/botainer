@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -248,6 +249,40 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	metrics := s.metricsStore.GetLast("", duration)
 	s.sendJSON(w, http.StatusOK, metrics)
+}
+
+// Alert handlers
+func (s *Server) handleGetAlertConfigs(w http.ResponseWriter, r *http.Request) {
+	configs := s.alertStore.GetAllConfigs()
+	s.sendJSON(w, http.StatusOK, configs)
+}
+
+func (s *Server) handleSetAlertConfig(w http.ResponseWriter, r *http.Request) {
+	var config AlertConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		s.sendError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	s.alertStore.SetConfig(config)
+	s.sendJSON(w, http.StatusOK, map[string]string{"message": "Alert config saved"})
+}
+
+func (s *Server) handleDeleteAlertConfig(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	containerID := vars["id"]
+	s.alertStore.DeleteConfig(containerID)
+	s.sendJSON(w, http.StatusOK, map[string]string{"message": "Alert config deleted"})
+}
+
+func (s *Server) handleGetAlertHistory(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil {
+			limit = parsed
+		}
+	}
+	history := s.alertStore.GetHistory(limit)
+	s.sendJSON(w, http.StatusOK, history)
 }
 
 func (s *Server) handleExportMetrics(w http.ResponseWriter, r *http.Request) {

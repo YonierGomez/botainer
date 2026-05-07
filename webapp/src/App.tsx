@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import HistoricalCharts from './components/HistoricalCharts'
 import ExportMetrics from './components/ExportMetrics'
+import AlertsManager from './components/AlertsManager'
 
 // Version: 2.1.1 - Added Export Metrics
 
@@ -47,6 +48,7 @@ function App() {
   const [selectedContainerStats, setSelectedContainerStats] = useState<Container | null>(null)
   const [selectedContainerCharts, setSelectedContainerCharts] = useState<Container | null>(null)
   const [showExportMetrics, setShowExportMetrics] = useState(false)
+  const [showAlerts, setShowAlerts] = useState(false)
   const [logs, setLogs] = useState<string>('')
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
@@ -300,6 +302,15 @@ function App() {
               </div>
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={() => setShowAlerts(true)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="Alerts Manager"
+              >
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+              </button>
               <button
                 onClick={() => setShowExportMetrics(true)}
                 className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
@@ -681,6 +692,15 @@ function App() {
       {showExportMetrics && (
         <ExportMetrics
           onClose={() => setShowExportMetrics(false)}
+          getAuthHeaders={getAuthHeaders}
+        />
+      )}
+
+      {/* Alerts Manager Modal */}
+      {showAlerts && (
+        <AlertsManager
+          containers={containers}
+          onClose={() => setShowAlerts(false)}
           getAuthHeaders={getAuthHeaders}
         />
       )}

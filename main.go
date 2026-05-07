@@ -4022,11 +4022,40 @@ func main() {
 	// Initialize metrics store (keep last 10080 points = 7 days at 1 minute intervals)
 	metricsStore := api.NewMetricsStore("/data/metrics.json", 10080)
 	
+	// Initialize alert store with Telegram notification callback
+	alertStore := api.NewAlertStore("/data/alerts.json", func(alert api.Alert) {
+		if notifyChatID == 0 {
+			return
+		}
+		icon := "🚨"
+		if alert.Type == "cpu" {
+			icon = "⚠️ CPU"
+		} else {
+			icon = "💾 RAM"
+		}
+		text := fmt.Sprintf("%s *Alert Triggered*\n\n"+
+			"Container: `%s`\n"+
+			"Type: %s\n"+
+			"Threshold: %.1f%%\n"+
+			"Current: %.1f%%\n"+
+			"Time: %s",
+			icon,
+			alert.ContainerName,
+			alert.Type,
+			alert.Threshold,
+			alert.CurrentValue,
+			alert.TriggeredAt.Format("15:04:05"))
+		
+		msg := tgbotapi.NewMessage(notifyChatID, text)
+		msg.ParseMode = "Markdown"
+		bot.Send(msg)
+	})
+	
 	// Start metrics collector (collect every 30 seconds)
-	go api.CollectMetrics(cli, metricsStore, 30*time.Second)
+	go api.CollectMetrics(cli, metricsStore, alertStore, 30*time.Second)
 
 	// Start API server for Mini App
-	apiServer := api.NewServer(cli, metricsStore)
+	apiServer := api.NewServer(cli, metricsStore, alertStore)
 	go func() {
 		if err := apiServer.Start("8080"); err != nil {
 			log.Printf("API server error: %v", err)

@@ -100,7 +100,7 @@ func (m *MetricsStore) load() {
 }
 
 // CollectMetrics collects metrics from all containers every interval
-func CollectMetrics(dockerClient *client.Client, store *MetricsStore, interval time.Duration) {
+func CollectMetrics(dockerClient *client.Client, store *MetricsStore, alertStore *AlertStore, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -156,6 +156,11 @@ func CollectMetrics(dockerClient *client.Client, store *MetricsStore, interval t
 			}
 
 			store.Add(point)
+
+			// Check alerts
+			if alertStore != nil {
+				alertStore.CheckMetric(c.ID[:12], c.Names[0], cpuPercent, memPercent)
+			}
 		}
 	}
 }

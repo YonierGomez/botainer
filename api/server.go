@@ -22,13 +22,15 @@ type Server struct {
 	docker        *client.Client
 	upgrader      websocket.Upgrader
 	metricsStore  *MetricsStore
+	alertStore    *AlertStore
 }
 
-func NewServer(dockerClient *client.Client, metricsStore *MetricsStore) *Server {
+func NewServer(dockerClient *client.Client, metricsStore *MetricsStore, alertStore *AlertStore) *Server {
 	s := &Server{
 		router:       mux.NewRouter(),
 		docker:       dockerClient,
 		metricsStore: metricsStore,
+		alertStore:   alertStore,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // TODO: Implement proper origin check
@@ -61,6 +63,12 @@ func (s *Server) routes() {
 	// Metrics endpoints
 	api.HandleFunc("/metrics", s.handleAllMetrics).Methods("GET")
 	api.HandleFunc("/metrics/export", s.handleExportMetrics).Methods("GET")
+	
+	// Alert endpoints
+	api.HandleFunc("/alerts/configs", s.handleGetAlertConfigs).Methods("GET")
+	api.HandleFunc("/alerts/configs", s.handleSetAlertConfig).Methods("POST")
+	api.HandleFunc("/alerts/configs/{id}", s.handleDeleteAlertConfig).Methods("DELETE")
+	api.HandleFunc("/alerts/history", s.handleGetAlertHistory).Methods("GET")
 	
 	// WebSocket endpoint
 	api.HandleFunc("/ws", s.handleWebSocket)
