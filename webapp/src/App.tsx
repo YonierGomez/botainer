@@ -72,23 +72,30 @@ function App() {
   const [loadingStats, setLoadingStats] = useState(false)
 
   useEffect(() => {
-    // Check if running in Telegram
-    if (!window.Telegram?.WebApp?.initData) {
-      setLoading(false)
-      setError('⚠️ Please open from Telegram\n\nGo to @botainerbot → 🐳 Dashboard')
-      // Don't start auto-refresh if not in Telegram
-      return
-    }
+    // Wait for Telegram WebApp SDK to load
+    const checkTelegram = () => {
+      if (!window.Telegram?.WebApp) {
+        setTimeout(checkTelegram, 100)
+        return
+      }
 
-    if (window.Telegram?.WebApp) {
+      // Check if running in Telegram
+      if (!window.Telegram.WebApp.initData) {
+        setLoading(false)
+        setError('⚠️ Please open this app from Telegram bot\n\nGo to @botainerbot → /start → 🐳 Dashboard')
+        return
+      }
+
       window.Telegram.WebApp.ready()
       window.Telegram.WebApp.expand()
-    }
-    fetchContainers()
+      fetchContainers()
 
-    // Auto-refresh every 5 seconds (silent) - only in Telegram
-    const interval = setInterval(() => fetchContainers(true), 5000)
-    return () => clearInterval(interval)
+      // Auto-refresh every 5 seconds (silent)
+      const interval = setInterval(() => fetchContainers(true), 5000)
+      return () => clearInterval(interval)
+    }
+
+    checkTelegram()
   }, [])
 
   const getAuthHeaders = () => {
