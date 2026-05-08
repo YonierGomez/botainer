@@ -11,6 +11,12 @@ ENV/
 dist/
 build/
 
+# Go
+botainer
+*.exe
+*.test
+*.out
+
 # Environment
 .env
 
@@ -24,3 +30,8 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+*.bak

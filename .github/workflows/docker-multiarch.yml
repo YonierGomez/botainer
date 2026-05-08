@@ -237,6 +237,7 @@ jobs:
             $(printf 'ghcr.io/yoniergomez/botainer@sha256:%s ' $(ls /tmp/digests/ghcr))
 
   # ── Phase 4: GitHub Release ───────────────────────────────────────────────────
+  # Historical changelogs are stored in changelogs/ directory
   release:
     needs: [check-version, build-and-push]
     runs-on: ubuntu-latest
