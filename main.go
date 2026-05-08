@@ -126,16 +126,32 @@ type RollbackEntry struct {
 
 // ContainerTemplate stores a container configuration for reuse
 type ContainerTemplate struct {
-	Name        string            `json:"name"`
-	Image       string            `json:"image"`
-	Cmd         []string          `json:"cmd,omitempty"`
-	Env         []string          `json:"env,omitempty"`
-	Ports       map[string]string `json:"ports,omitempty"` // hostPort -> containerPort
-	Volumes     []string          `json:"volumes,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	NetworkMode string            `json:"networkMode,omitempty"`
-	RestartPolicy string          `json:"restartPolicy,omitempty"`
-	CreatedAt   time.Time         `json:"createdAt"`
+	Name          string            `json:"name"`
+	Image         string            `json:"image"`
+	Cmd           []string          `json:"cmd,omitempty"`
+	Env           []string          `json:"env,omitempty"`
+	Ports         map[string]string `json:"ports,omitempty"` // hostPort -> containerPort
+	Volumes       []string          `json:"volumes,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	NetworkMode   string            `json:"networkMode,omitempty"`
+	RestartPolicy string            `json:"restartPolicy,omitempty"`
+	IsPublic      bool              `json:"isPublic"`
+	CreatedBy     int64             `json:"createdBy"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	UsageCount    int               `json:"usageCount"`
+}
+
+type ImageHistory struct {
+	Image     string    `json:"image"`
+	Digest    string    `json:"digest"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type RegistryAuth struct {
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Email    string `json:"email,omitempty"`
 }
 
 // Phase 1: Alerts & Monitoring types
@@ -1996,7 +2012,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	// ── Phase 2: Templates ────────────────────────────────────────────────
 	case "tpl_save":
 		go func() {
-			if err := saveTemplate(target); err != nil {
+			if err := saveTemplate(target, query.From.ID); err != nil {
 				sendMessageWithClose(chatID, "❌ Error guardando plantilla: "+err.Error())
 			} else {
 				sendMessageWithClose(chatID, fmt.Sprintf("✅ Plantilla *%s* guardada", target))
@@ -2059,7 +2075,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "Plantilla no encontrada"))
 			return
 		}
-		text := fmt.Sprintf("📋 *Plantilla: %s*\n\n🖼️ Imagen: `%s`\n", tpl.Name, tpl.Image)
+		visibility := "🔒 Privada"
+		if tpl.IsPublic {
+			visibility = "🌐 Pública"
+		}
+		text := fmt.Sprintf("📋 *Plantilla: %s*\n\n🖼️ Imagen: `%s`\n%s\n📊 Usos: %d\n", tpl.Name, tpl.Image, visibility, tpl.UsageCount)
 		if len(tpl.Ports) > 0 {
 			text += "🔌 Puertos:\n"
 			for h, c := range tpl.Ports {
@@ -2076,6 +2096,12 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			text += fmt.Sprintf("🔧 Env vars: %d\n", len(tpl.Env))
 		}
 		text += fmt.Sprintf("📅 Creada: %s", tpl.CreatedAt.Format("02/01/2006 15:04"))
+		
+		visibilityBtn := tgbotapi.NewInlineKeyboardButtonData("🌐 Hacer pública", "tpl_public:"+target)
+		if tpl.IsPublic {
+			visibilityBtn = tgbotapi.NewInlineKeyboardButtonData("🔒 Hacer privada", "tpl_private:"+target)
+		}
+		
 		msg := tgbotapi.NewMessage(chatID, text)
 		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
@@ -2084,12 +2110,45 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				tgbotapi.NewInlineKeyboardButtonData("🗑️ Eliminar", "tpl_delete:"+target),
 			),
 			tgbotapi.NewInlineKeyboardRow(
+				visibilityBtn,
+			),
+			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("⬅️ Atrás", "cmd:templates"),
 				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
 			),
 		)
 		bot.Send(msg)
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+
+	case "tpl_public":
+		configMutex.Lock()
+		if tpl, ok := templates[target]; ok {
+			tpl.IsPublic = true
+			templates[target] = tpl
+			saveConfig()
+		}
+		configMutex.Unlock()
+		bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "✅ Plantilla ahora es pública"))
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			handleCallback(query) // Refresh the view
+		}()
+		return
+
+	case "tpl_private":
+		configMutex.Lock()
+		if tpl, ok := templates[target]; ok {
+			tpl.IsPublic = false
+			templates[target] = tpl
+			saveConfig()
+		}
+		configMutex.Unlock()
+		bot.Request(tgbotapi.NewCallbackWithAlert(query.ID, "✅ Plantilla ahora es privada"))
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			handleCallback(query) // Refresh the view
+		}()
 		return
 
 	// ── Phase 2: Maintenance mode ─────────────────────────────────────────
@@ -4203,6 +4262,7 @@ func main() {
 		{Command: "webhooks", Description: "🔗 Gestionar webhooks"},
 		{Command: "policies", Description: "⚙️ Políticas de actualización"},
 		// Phase 4
+		{Command: "registries", Description: "📦 Registries privados"},
 		{Command: "networks", Description: "🌐 Gestionar redes"},
 		{Command: "cleanup", Description: "🧹 Limpieza inteligente"},
 		{Command: "ports", Description: "🔌 Gestión de puertos"},
@@ -4417,6 +4477,8 @@ func main() {
 			case "policies":
 				go handlePolicies(chatID)
 			// Phase 4
+			case "registries":
+				go handleRegistries(chatID)
 			case "cleanup":
 				go handleCleanup(chatID)
 			case "ports":
@@ -4540,7 +4602,7 @@ func handleRollback(chatID int64) {
 // Phase 2: Container Templates
 // ═══════════════════════════════════════════════════════════════════════════
 
-func saveTemplate(containerName string) error {
+func saveTemplate(containerName string, userID int64) error {
 	ctx := context.Background()
 	inspect, err := cli.ContainerInspect(ctx, containerName)
 	if err != nil {
@@ -4554,7 +4616,10 @@ func saveTemplate(containerName string) error {
 		Env:         inspect.Config.Env,
 		Labels:      inspect.Config.Labels,
 		NetworkMode: string(inspect.HostConfig.NetworkMode),
+		IsPublic:    false,
+		CreatedBy:   userID,
 		CreatedAt:   time.Now(),
+		UsageCount:  0,
 	}
 
 	// Extract port bindings
@@ -4619,6 +4684,16 @@ func deployTemplate(tpl ContainerTemplate) error {
 	if err != nil {
 		return fmt.Errorf("create failed: %w", err)
 	}
+	
+	// Increment usage count
+	configMutex.Lock()
+	if t, exists := templates[tpl.Name]; exists {
+		t.UsageCount++
+		templates[tpl.Name] = t
+		saveConfig()
+	}
+	configMutex.Unlock()
+	
 	return cli.ContainerStart(ctx, resp.ID, container.StartOptions{})
 }
 
