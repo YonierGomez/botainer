@@ -1084,6 +1084,147 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		return
 	}
 	
+	if query.Data == "updateall_confirm" {
+		editToLoading(chatID, query.Message.MessageID, "🔄 Actualizando todos los contenedores...")
+		
+		go func() {
+			configMutex.Lock()
+			updatesJSON := createData[chatID]["pending_updates"]
+			delete(createData, chatID)
+			configMutex.Unlock()
+			
+			if updatesJSON == "" {
+				sendMessageWithClose(chatID, "❌ Error: No hay actualizaciones pendientes")
+				return
+			}
+			
+			type updateInfo struct {
+				ImageTag   string `json:"imageTag"`
+				Containers []struct {
+					Name    string `json:"name"`
+					Project string `json:"project"`
+				} `json:"containers"`
+				OldID string `json:"oldID"`
+				NewID string `json:"newID"`
+				Size  int64  `json:"size"`
+			}
+			
+			var updates []updateInfo
+			if err := json.Unmarshal([]byte(updatesJSON), &updates); err != nil {
+				sendMessageWithClose(chatID, "❌ Error al parsear actualizaciones: "+err.Error())
+				return
+			}
+			
+			// Update all containers in parallel
+			type result struct {
+				container string
+				success   bool
+				err       error
+			}
+			
+			results := make(chan result, 100)
+			var wg sync.WaitGroup
+			semaphore := make(chan struct{}, 5) // Max 5 concurrent updates
+			
+			totalContainers := 0
+			for _, upd := range updates {
+				for _, c := range upd.Containers {
+					totalContainers++
+					wg.Add(1)
+					semaphore <- struct{}{}
+					
+					go func(containerName, project string) {
+						defer wg.Done()
+						defer func() { <-semaphore }()
+						
+						var err error
+						if project != "" {
+							// Compose service - CRITICAL: Update only the specific service
+							workDir := getComposeWorkDir(project)
+							if workDir == "" {
+								results <- result{containerName, false, fmt.Errorf("project dir not found")}
+								return
+							}
+							
+							composeFile := findComposeFile(workDir)
+							if composeFile == "" {
+								results <- result{containerName, false, fmt.Errorf("compose file not found")}
+								return
+							}
+							
+							// Pull only this service
+							_, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", containerName)
+							if pullErr != nil {
+								// Ignore pull errors for local images
+								log.Printf("Pull warning for %s: %v (continuing with up)", containerName, pullErr)
+							}
+							
+							// Up only this specific service (NOT the entire project)
+							_, err = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+						} else {
+							// Standalone container
+							err = recreateWithNewImage(containerName)
+						}
+						
+						results <- result{containerName, err == nil, err}
+					}(c.Name, c.Project)
+				}
+			}
+			
+			// Wait for all updates to complete
+			go func() {
+				wg.Wait()
+				close(results)
+			}()
+			
+			// Collect results
+			successes := []string{}
+			failures := []string{}
+			
+			for res := range results {
+				if res.success {
+					successes = append(successes, res.container)
+				} else {
+					errMsg := "unknown error"
+					if res.err != nil {
+						errMsg = res.err.Error()
+						if len(errMsg) > 50 {
+							errMsg = errMsg[:50] + "..."
+						}
+					}
+					failures = append(failures, fmt.Sprintf("%s (%s)", res.container, errMsg))
+				}
+			}
+			
+			// Send final report
+			text := fmt.Sprintf("📊 *Actualización Masiva Completada*\n\n"+
+				"✅ Exitosos: %d\n"+
+				"❌ Fallidos: %d\n"+
+				"📦 Total: %d\n\n", len(successes), len(failures), totalContainers)
+			
+			if len(successes) > 0 {
+				text += "*Actualizados:*\n"
+				for _, name := range successes {
+					icon := getIcon(name)
+					text += fmt.Sprintf("✅ %s `%s`\n", icon, name)
+				}
+				text += "\n"
+			}
+			
+			if len(failures) > 0 {
+				text += "*Fallidos:*\n"
+				for _, name := range failures {
+					text += fmt.Sprintf("❌ %s\n", name)
+				}
+			}
+			
+			sendMessageWithClose(chatID, text)
+		}()
+		
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	}
+	
 	if strings.HasPrefix(query.Data, "newtag_howto:") {
 		parts := strings.Split(query.Data, ":")
 		if len(parts) >= 4 {
@@ -2226,146 +2367,6 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 	case "maintenance_status":
 		go handleMaintenance(chatID)
-		bot.Request(tgbotapi.NewCallback(query.ID, ""))
-		return
-	
-	case "updateall_confirm":
-		editToLoading(chatID, query.Message.MessageID, "🔄 Actualizando todos los contenedores...")
-		
-		go func() {
-			configMutex.Lock()
-			updatesJSON := createData[chatID]["pending_updates"]
-			delete(createData, chatID)
-			configMutex.Unlock()
-			
-			if updatesJSON == "" {
-				sendMessageWithClose(chatID, "❌ Error: No hay actualizaciones pendientes")
-				return
-			}
-			
-			type updateInfo struct {
-				ImageTag   string `json:"imageTag"`
-				Containers []struct {
-					Name    string `json:"name"`
-					Project string `json:"project"`
-				} `json:"containers"`
-				OldID string `json:"oldID"`
-				NewID string `json:"newID"`
-				Size  int64  `json:"size"`
-			}
-			
-			var updates []updateInfo
-			if err := json.Unmarshal([]byte(updatesJSON), &updates); err != nil {
-				sendMessageWithClose(chatID, "❌ Error al parsear actualizaciones: "+err.Error())
-				return
-			}
-			
-			// Update all containers in parallel
-			type result struct {
-				container string
-				success   bool
-				err       error
-			}
-			
-			results := make(chan result, 100)
-			var wg sync.WaitGroup
-			semaphore := make(chan struct{}, 5) // Max 5 concurrent updates
-			
-			totalContainers := 0
-			for _, upd := range updates {
-				for _, c := range upd.Containers {
-					totalContainers++
-					wg.Add(1)
-					semaphore <- struct{}{}
-					
-					go func(containerName, project string) {
-						defer wg.Done()
-						defer func() { <-semaphore }()
-						
-						var err error
-						if project != "" {
-							// Compose service - CRITICAL: Update only the specific service
-							workDir := getComposeWorkDir(project)
-							if workDir == "" {
-								results <- result{containerName, false, fmt.Errorf("project dir not found")}
-								return
-							}
-							
-							composeFile := findComposeFile(workDir)
-							if composeFile == "" {
-								results <- result{containerName, false, fmt.Errorf("compose file not found")}
-								return
-							}
-							
-							// Pull only this service
-							_, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", containerName)
-							if pullErr != nil {
-								// Ignore pull errors for local images
-								log.Printf("Pull warning for %s: %v (continuing with up)", containerName, pullErr)
-							}
-							
-							// Up only this specific service (NOT the entire project)
-							_, err = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
-						} else {
-							// Standalone container
-							err = recreateWithNewImage(containerName)
-						}
-						
-						results <- result{containerName, err == nil, err}
-					}(c.Name, c.Project)
-				}
-			}
-			
-			// Wait for all updates to complete
-			go func() {
-				wg.Wait()
-				close(results)
-			}()
-			
-			// Collect results
-			successes := []string{}
-			failures := []string{}
-			
-			for res := range results {
-				if res.success {
-					successes = append(successes, res.container)
-				} else {
-					errMsg := "unknown error"
-					if res.err != nil {
-						errMsg = res.err.Error()
-						if len(errMsg) > 50 {
-							errMsg = errMsg[:50] + "..."
-						}
-					}
-					failures = append(failures, fmt.Sprintf("%s (%s)", res.container, errMsg))
-				}
-			}
-			
-			// Send final report
-			text := fmt.Sprintf("📊 *Actualización Masiva Completada*\n\n"+
-				"✅ Exitosos: %d\n"+
-				"❌ Fallidos: %d\n"+
-				"📦 Total: %d\n\n", len(successes), len(failures), totalContainers)
-			
-			if len(successes) > 0 {
-				text += "*Actualizados:*\n"
-				for _, name := range successes {
-					icon := getIcon(name)
-					text += fmt.Sprintf("✅ %s `%s`\n", icon, name)
-				}
-				text += "\n"
-			}
-			
-			if len(failures) > 0 {
-				text += "*Fallidos:*\n"
-				for _, name := range failures {
-					text += fmt.Sprintf("❌ %s\n", name)
-				}
-			}
-			
-			sendMessageWithClose(chatID, text)
-		}()
-		
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	
