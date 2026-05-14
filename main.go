@@ -2251,6 +2251,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				} `json:"containers"`
 				OldID string `json:"oldID"`
 				NewID string `json:"newID"`
+				Size  int64  `json:"size"`
 			}
 			
 			var updates []updateInfo
@@ -2283,7 +2284,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 						
 						var err error
 						if project != "" {
-							// Compose service
+							// Compose service - CRITICAL: Update only the specific service
 							workDir := getComposeWorkDir(project)
 							if workDir == "" {
 								results <- result{containerName, false, fmt.Errorf("project dir not found")}
@@ -2296,11 +2297,15 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 								return
 							}
 							
-							// Pull and up
-							_, err = runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", containerName)
-							if err == nil {
-								_, err = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+							// Pull only this service
+							_, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", containerName)
+							if pullErr != nil {
+								// Ignore pull errors for local images
+								log.Printf("Pull warning for %s: %v (continuing with up)", containerName, pullErr)
 							}
+							
+							// Up only this specific service (NOT the entire project)
+							_, err = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
 						} else {
 							// Standalone container
 							err = recreateWithNewImage(containerName)
@@ -2328,6 +2333,9 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					errMsg := "unknown error"
 					if res.err != nil {
 						errMsg = res.err.Error()
+						if len(errMsg) > 50 {
+							errMsg = errMsg[:50] + "..."
+						}
 					}
 					failures = append(failures, fmt.Sprintf("%s (%s)", res.container, errMsg))
 				}
@@ -2342,7 +2350,8 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			if len(successes) > 0 {
 				text += "*Actualizados:*\n"
 				for _, name := range successes {
-					text += fmt.Sprintf("✅ `%s`\n", name)
+					icon := getIcon(name)
+					text += fmt.Sprintf("✅ %s `%s`\n", icon, name)
 				}
 				text += "\n"
 			}
@@ -3130,6 +3139,7 @@ func handleUpdateAll(chatID int64) {
 		containers []containerInfo
 		oldID      string
 		newID      string
+		size       int64
 	}
 	
 	updates := []updateInfo{}
@@ -3164,6 +3174,7 @@ func handleUpdateAll(chatID int64) {
 					containers: containers,
 					oldID:      localID,
 					newID:      newID,
+					size:       imgInspect.Size,
 				})
 				mu.Unlock()
 			}
@@ -3178,22 +3189,50 @@ func handleUpdateAll(chatID int64) {
 		return
 	}
 
-	// Build confirmation message
+	// Build confirmation message with detailed info
 	text := fmt.Sprintf("⚠️ *Actualizar TODOS los contenedores*\n\n"+
 		"Se encontraron *%d actualizaciones* disponibles:\n\n", len(updates))
 	
 	totalContainers := 0
 	for _, upd := range updates {
 		totalContainers += len(upd.containers)
+		
+		// Format size
+		sizeMB := float64(upd.size) / 1024 / 1024
+		sizeText := fmt.Sprintf("%.1f MB", sizeMB)
+		if sizeMB > 1024 {
+			sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+		}
+		
+		// Short digests
+		oldShort := upd.oldID
+		if len(oldShort) > 19 {
+			oldShort = "..." + oldShort[len(oldShort)-16:]
+		}
+		newShort := upd.newID
+		if len(newShort) > 19 {
+			newShort = "..." + newShort[len(newShort)-16:]
+		}
+		
 		containerNames := []string{}
 		for _, c := range upd.containers {
-			containerNames = append(containerNames, c.name)
+			icon := getIcon(c.name)
+			if c.project != "" {
+				containerNames = append(containerNames, fmt.Sprintf("%s %s (compose)", icon, c.name))
+			} else {
+				containerNames = append(containerNames, fmt.Sprintf("%s %s", icon, c.name))
+			}
 		}
-		text += fmt.Sprintf("🔄 `%s`\n   Contenedores: %s\n\n", 
-			upd.imageTag, strings.Join(containerNames, ", "))
+		
+		text += fmt.Sprintf("🔄 *%s*\n"+
+			"   📦 Anterior: `%s`\n"+
+			"   ✅ Nueva: `%s`\n"+
+			"   💾 Tamaño: `%s`\n"+
+			"   🐳 Contenedores:\n      • %s\n\n",
+			upd.imageTag, oldShort, newShort, sizeText, strings.Join(containerNames, "\n      • "))
 	}
 	
-	text += fmt.Sprintf("📦 *Total: %d contenedores*\n\n", totalContainers)
+	text += fmt.Sprintf("📊 *Total: %d contenedores*\n\n", totalContainers)
 	text += "⚠️ Esta acción recreará todos los contenedores listados."
 
 	msg := tgbotapi.NewMessage(chatID, text)
