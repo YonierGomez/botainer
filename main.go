@@ -1085,7 +1085,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	}
 	
 	if query.Data == "updateall_confirm" {
-		editToLoading(chatID, query.Message.MessageID, "🔄 Actualizando todos los contenedores...")
+		bot.Send(tgbotapi.NewDeleteMessage(chatID, query.Message.MessageID))
 		
 		go func() {
 			configMutex.Lock()
@@ -1111,133 +1111,86 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			
 			var updates []updateInfo
 			if err := json.Unmarshal([]byte(updatesJSON), &updates); err != nil {
-				sendMessageWithClose(chatID, "❌ Error al parsear actualizaciones: "+err.Error())
+				sendMessageWithClose(chatID, "❌ Error: "+err.Error())
 				return
 			}
 			
-			// Count total containers
+			// Count total
 			totalContainers := 0
 			for _, upd := range updates {
 				totalContainers += len(upd.Containers)
 			}
 			
-			// Send initial progress
-			progressMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 *Actualizando %d contenedores...*\n\n_Iniciando..._", totalContainers))
+			// Send progress message
+			progressMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 *Actualizando %d contenedores*\n\n_Iniciando..._", totalContainers))
 			progressMsg.ParseMode = "Markdown"
 			sentMsg, _ := bot.Send(progressMsg)
 			
-			// Update all containers in parallel
-			type result struct {
-				container string
-				success   bool
-				err       error
-			}
-			
-			results := make(chan result, totalContainers)
-			var wg sync.WaitGroup
-			semaphore := make(chan struct{}, 5) // Max 5 concurrent updates
-			
-			completed := 0
-			var progressMu sync.Mutex
+			// Process updates
+			successes := []string{}
+			failures := []string{}
+			current := 0
 			
 			for _, upd := range updates {
 				for _, c := range upd.Containers {
-					wg.Add(1)
-					semaphore <- struct{}{}
+					current++
+					containerName := c.Name
+					project := c.Project
 					
-					go func(containerName, project string) {
-						defer wg.Done()
-						defer func() { <-semaphore }()
-						
-						// Update progress
-						progressMu.Lock()
-						completed++
-						currentProgress := completed
-						progressMu.Unlock()
-						
-						// Send progress update
-						progressText := fmt.Sprintf("🔄 *Actualizando %d/%d contenedores*\n\n⏳ Actualizando: `%s`", 
-							currentProgress, totalContainers, containerName)
-						edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, progressText)
-						edit.ParseMode = "Markdown"
-						bot.Send(edit)
-						
-						var err error
-						if project != "" {
-							// Compose service - CRITICAL: Update only the specific service
-							workDir := getComposeWorkDir(project)
-							if workDir == "" {
-								results <- result{containerName, false, fmt.Errorf("project dir not found")}
-								return
-							}
-							
-							composeFile := findComposeFile(workDir)
-							if composeFile == "" {
-								results <- result{containerName, false, fmt.Errorf("compose file not found")}
-								return
-							}
-							
-							log.Printf("[updateall] Updating compose service: %s (project: %s)", containerName, project)
-							
-							// Pull only this service
-							_, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", containerName)
-							if pullErr != nil {
-								log.Printf("[updateall] Pull warning for %s: %v (continuing)", containerName, pullErr)
-							}
-							
-							// Up only this specific service (NOT the entire project)
-							upOut, err := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
-							if err != nil {
-								log.Printf("[updateall] Up failed for %s: %v\nOutput: %s", containerName, err, upOut)
-							} else {
-								log.Printf("[updateall] Successfully updated: %s", containerName)
-							}
-						} else {
-							// Standalone container
-							log.Printf("[updateall] Updating standalone container: %s", containerName)
-							err = recreateWithNewImage(containerName)
-							if err != nil {
-								log.Printf("[updateall] Recreate failed for %s: %v", containerName, err)
-							} else {
-								log.Printf("[updateall] Successfully updated: %s", containerName)
-							}
+					// Update progress
+					edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, 
+						fmt.Sprintf("🔄 *Actualizando %d/%d*\n\n⏳ `%s`", current, totalContainers, containerName))
+					edit.ParseMode = "Markdown"
+					bot.Send(edit)
+					
+					log.Printf("[updateall] Processing: %s (project: %s)", containerName, project)
+					
+					var err error
+					if project != "" {
+						// Compose: simple docker compose up -d <service>
+						workDir := getComposeWorkDir(project)
+						if workDir == "" {
+							log.Printf("[updateall] ERROR: workdir not found for project %s", project)
+							failures = append(failures, fmt.Sprintf("%s (workdir not found)", containerName))
+							continue
 						}
 						
-						results <- result{containerName, err == nil, err}
-					}(c.Name, c.Project)
-				}
-			}
-			
-			// Wait for all updates to complete
-			go func() {
-				wg.Wait()
-				close(results)
-			}()
-			
-			// Collect results
-			successes := []string{}
-			failures := []string{}
-			
-			for res := range results {
-				if res.success {
-					successes = append(successes, res.container)
-				} else {
-					errMsg := "unknown error"
-					if res.err != nil {
-						errMsg = res.err.Error()
-						if len(errMsg) > 50 {
-							errMsg = errMsg[:50] + "..."
+						composeFile := findComposeFile(workDir)
+						if composeFile == "" {
+							log.Printf("[updateall] ERROR: compose file not found in %s", workDir)
+							failures = append(failures, fmt.Sprintf("%s (compose file not found)", containerName))
+							continue
+						}
+						
+						log.Printf("[updateall] Running: docker compose -f %s up -d %s", composeFile, containerName)
+						output, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+						if err != nil {
+							log.Printf("[updateall] ERROR: %v\nOutput: %s", err, output)
+							failures = append(failures, fmt.Sprintf("%s (%s)", containerName, err.Error()[:50]))
+						} else {
+							log.Printf("[updateall] SUCCESS: %s", containerName)
+							successes = append(successes, containerName)
+						}
+					} else {
+						// Standalone
+						log.Printf("[updateall] Recreating standalone: %s", containerName)
+						err = recreateWithNewImage(containerName)
+						if err != nil {
+							log.Printf("[updateall] ERROR: %v", err)
+							failures = append(failures, fmt.Sprintf("%s (%s)", containerName, err.Error()[:50]))
+						} else {
+							log.Printf("[updateall] SUCCESS: %s", containerName)
+							successes = append(successes, containerName)
 						}
 					}
-					failures = append(failures, fmt.Sprintf("%s (%s)", res.container, errMsg))
 				}
 			}
 			
-			// Delete progress message
+			// Delete progress
 			bot.Send(tgbotapi.NewDeleteMessage(chatID, sentMsg.MessageID))
 			
-			// Send final report
-			text := fmt.Sprintf("📊 *Actualización Masiva Completada*\n\n"+
+			// Final report
+			text := fmt.Sprintf("📊 *Actualización Completada*\n\n"+
 				"✅ Exitosos: %d\n"+
 				"❌ Fallidos: %d\n"+
 				"📦 Total: %d\n\n", len(successes), len(failures), totalContainers)
@@ -1245,8 +1198,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			if len(successes) > 0 {
 				text += "*Actualizados:*\n"
 				for _, name := range successes {
-					icon := getIcon(name)
-					text += fmt.Sprintf("✅ %s `%s`\n", icon, name)
+					text += fmt.Sprintf("✅ %s `%s`\n", getIcon(name), name)
 				}
 				text += "\n"
 			}
@@ -1256,10 +1208,6 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				for _, name := range failures {
 					text += fmt.Sprintf("❌ %s\n", name)
 				}
-			}
-			
-			if len(successes) == 0 && len(failures) == 0 {
-				text += "⚠️ No se procesaron contenedores. Revisa los logs del bot."
 			}
 			
 			sendMessageWithClose(chatID, text)
@@ -3153,15 +3101,24 @@ func runImageUpdateCheckWithFeedback(chatID int64) {
 	}
 }
 func handleUpdateAll(chatID int64) {
-	loadingID := sendLoading(chatID, "🔍 Buscando actualizaciones disponibles...")
-	
 	ctx := context.Background()
+	
+	// Send initial message
+	statusMsg := tgbotapi.NewMessage(chatID, "🔍 *Buscando actualizaciones...*\n\n_Listando contenedores..._")
+	statusMsg.ParseMode = "Markdown"
+	sentMsg, _ := bot.Send(statusMsg)
+	
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
-		deleteMsg(chatID, loadingID)
-		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+		bot.Send(tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "❌ Error: "+err.Error()))
 		return
 	}
+
+	// Update: checking images
+	edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, 
+		fmt.Sprintf("🔍 *Buscando actualizaciones...*\n\n_Verificando %d contenedores..._", len(containers)))
+	edit.ParseMode = "Markdown"
+	bot.Send(edit)
 
 	// Group containers by image
 	type containerInfo struct {
@@ -3178,7 +3135,7 @@ func handleUpdateAll(chatID int64) {
 		imageMap[imageTag] = append(imageMap[imageTag], containerInfo{name, project})
 	}
 
-	// Check for updates
+	// Check for updates in parallel
 	type updateInfo struct {
 		imageTag   string
 		containers []containerInfo
@@ -3191,6 +3148,9 @@ func handleUpdateAll(chatID int64) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
+	
+	checked := 0
+	totalImages := len(imageMap)
 
 	for imageTag, ctrs := range imageMap {
 		wg.Add(1)
@@ -3212,6 +3172,18 @@ func handleUpdateAll(chatID int64) {
 			imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imgTag)
 			newID := imgInspect.ID
 
+			// Update progress
+			mu.Lock()
+			checked++
+			currentChecked := checked
+			mu.Unlock()
+			
+			edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, 
+				fmt.Sprintf("🔍 *Buscando actualizaciones...*\n\n_Verificando: %d/%d imágenes_\n`%s`", 
+					currentChecked, totalImages, imgTag))
+			edit.ParseMode = "Markdown"
+			bot.Send(edit)
+
 			if localID != "" && newID != "" && localID != newID {
 				mu.Lock()
 				updates = append(updates, updateInfo{
@@ -3227,7 +3199,7 @@ func handleUpdateAll(chatID int64) {
 	}
 
 	wg.Wait()
-	deleteMsg(chatID, loadingID)
+	bot.Send(tgbotapi.NewDeleteMessage(chatID, sentMsg.MessageID))
 
 	if len(updates) == 0 {
 		sendMessageWithClose(chatID, "✅ Todos los contenedores están actualizados")
@@ -3290,7 +3262,7 @@ func handleUpdateAll(chatID int64) {
 	)
 	bot.Send(msg)
 	
-	// Store updates in a temporary map for the callback
+	// Store updates for the callback
 	configMutex.Lock()
 	if createData[chatID] == nil {
 		createData[chatID] = make(map[string]string)
