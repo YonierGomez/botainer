@@ -1115,6 +1115,17 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				return
 			}
 			
+			// Count total containers
+			totalContainers := 0
+			for _, upd := range updates {
+				totalContainers += len(upd.Containers)
+			}
+			
+			// Send initial progress
+			progressMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 *Actualizando %d contenedores...*\n\n_Iniciando..._", totalContainers))
+			progressMsg.ParseMode = "Markdown"
+			sentMsg, _ := bot.Send(progressMsg)
+			
 			// Update all containers in parallel
 			type result struct {
 				container string
@@ -1122,20 +1133,34 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				err       error
 			}
 			
-			results := make(chan result, 100)
+			results := make(chan result, totalContainers)
 			var wg sync.WaitGroup
 			semaphore := make(chan struct{}, 5) // Max 5 concurrent updates
 			
-			totalContainers := 0
+			completed := 0
+			var progressMu sync.Mutex
+			
 			for _, upd := range updates {
 				for _, c := range upd.Containers {
-					totalContainers++
 					wg.Add(1)
 					semaphore <- struct{}{}
 					
 					go func(containerName, project string) {
 						defer wg.Done()
 						defer func() { <-semaphore }()
+						
+						// Update progress
+						progressMu.Lock()
+						completed++
+						currentProgress := completed
+						progressMu.Unlock()
+						
+						// Send progress update
+						progressText := fmt.Sprintf("🔄 *Actualizando %d/%d contenedores*\n\n⏳ Actualizando: `%s`", 
+							currentProgress, totalContainers, containerName)
+						edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, progressText)
+						edit.ParseMode = "Markdown"
+						bot.Send(edit)
 						
 						var err error
 						if project != "" {
@@ -1152,18 +1177,30 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 								return
 							}
 							
+							log.Printf("[updateall] Updating compose service: %s (project: %s)", containerName, project)
+							
 							// Pull only this service
 							_, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", containerName)
 							if pullErr != nil {
-								// Ignore pull errors for local images
-								log.Printf("Pull warning for %s: %v (continuing with up)", containerName, pullErr)
+								log.Printf("[updateall] Pull warning for %s: %v (continuing)", containerName, pullErr)
 							}
 							
 							// Up only this specific service (NOT the entire project)
-							_, err = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+							upOut, err := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+							if err != nil {
+								log.Printf("[updateall] Up failed for %s: %v\nOutput: %s", containerName, err, upOut)
+							} else {
+								log.Printf("[updateall] Successfully updated: %s", containerName)
+							}
 						} else {
 							// Standalone container
+							log.Printf("[updateall] Updating standalone container: %s", containerName)
 							err = recreateWithNewImage(containerName)
+							if err != nil {
+								log.Printf("[updateall] Recreate failed for %s: %v", containerName, err)
+							} else {
+								log.Printf("[updateall] Successfully updated: %s", containerName)
+							}
 						}
 						
 						results <- result{containerName, err == nil, err}
@@ -1196,6 +1233,9 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				}
 			}
 			
+			// Delete progress message
+			bot.Send(tgbotapi.NewDeleteMessage(chatID, sentMsg.MessageID))
+			
 			// Send final report
 			text := fmt.Sprintf("📊 *Actualización Masiva Completada*\n\n"+
 				"✅ Exitosos: %d\n"+
@@ -1216,6 +1256,10 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				for _, name := range failures {
 					text += fmt.Sprintf("❌ %s\n", name)
 				}
+			}
+			
+			if len(successes) == 0 && len(failures) == 0 {
+				text += "⚠️ No se procesaron contenedores. Revisa los logs del bot."
 			}
 			
 			sendMessageWithClose(chatID, text)
