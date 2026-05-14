@@ -592,33 +592,79 @@ func handleStart(chatID int64) {
 	// Check bot version and show update notification if available
 	checkBotVersion(chatID)
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
-			tgbotapi.NewInlineKeyboardButtonData("📊 PS", "cmd:ps"),
-			tgbotapi.NewInlineKeyboardButtonData("🖥️ Stats", "cmd:stats"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📁 Compose", "cmd:compose"),
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "cmd:inspect_menu"),
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🖼️ Images", "cmd:images"),
-			tgbotapi.NewInlineKeyboardButtonData("💾 Volumes", "cmd:volumes"),
-			tgbotapi.NewInlineKeyboardButtonData("🌐 Networks", "cmd:networks"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
-			tgbotapi.NewInlineKeyboardButtonData("🔧 Diagnose", "cmd:diagnose"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-		),
-	)
+	// Get Mini App URL from environment or use default
+	miniAppURL := os.Getenv("MINI_APP_URL")
+	if miniAppURL == "" {
+		miniAppURL = "http://localhost:8080" // Default for local testing
+	}
+
+	var keyboard tgbotapi.InlineKeyboardMarkup
+	
+	// Add Dashboard button if Mini App URL is configured
+	// Note: WebApp button requires telegram-bot-api v6+, currently using v5
+	if miniAppURL != "" && miniAppURL != "http://localhost:8080" {
+		// TODO: Upgrade to telegram-bot-api v6 to enable WebApp button
+		// keyboard = tgbotapi.NewInlineKeyboardMarkup(
+		// 	tgbotapi.NewInlineKeyboardRow(
+		// 		tgbotapi.NewInlineKeyboardButtonWebApp("🐳 Dashboard", tgbotapi.WebAppInfo{URL: miniAppURL}),
+		// 	),
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
+				tgbotapi.NewInlineKeyboardButtonData("📊 PS", "cmd:ps"),
+				tgbotapi.NewInlineKeyboardButtonData("🖥️ Stats", "cmd:stats"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📁 Compose", "cmd:compose"),
+				tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "cmd:inspect_menu"),
+				tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🖼️ Images", "cmd:images"),
+				tgbotapi.NewInlineKeyboardButtonData("💾 Volumes", "cmd:volumes"),
+				tgbotapi.NewInlineKeyboardButtonData("🌐 Networks", "cmd:networks"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
+				tgbotapi.NewInlineKeyboardButtonData("🔧 Diagnose", "cmd:diagnose"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+			),
+		)
+	} else {
+		keyboard = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
+				tgbotapi.NewInlineKeyboardButtonData("📊 PS", "cmd:ps"),
+				tgbotapi.NewInlineKeyboardButtonData("🖥️ Stats", "cmd:stats"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📁 Compose", "cmd:compose"),
+				tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "cmd:inspect_menu"),
+				tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🖼️ Images", "cmd:images"),
+				tgbotapi.NewInlineKeyboardButtonData("💾 Volumes", "cmd:volumes"),
+				tgbotapi.NewInlineKeyboardButtonData("🌐 Networks", "cmd:networks"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
+				tgbotapi.NewInlineKeyboardButtonData("🔧 Diagnose", "cmd:diagnose"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+			),
+		)
+	}
+	
 	msg := tgbotapi.NewMessage(chatID, "🐳 *Botainer*\nGestiona tus contenedores Docker")
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
@@ -1098,7 +1144,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 							out = fmt.Sprintf("❌ Error al editar compose: %v\n%s", sedErr, sedOut)
 						} else {
 							// Run docker compose up -d for the service
-							upOut, upErr := runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--remove-orphans", containerName)
+							upOut, upErr := runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
 							if upErr != nil {
 								out = fmt.Sprintf("❌ Error al actualizar: %v\n%s", upErr, upOut)
 							} else {
@@ -1653,7 +1699,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 		// Up -d only the specific service (timeout 3 minutos)
-		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--remove-orphans", service)
+		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", service)
 		if upErr != nil {
 			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
 			out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
@@ -2180,6 +2226,137 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 	case "maintenance_status":
 		go handleMaintenance(chatID)
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		return
+	
+	case "updateall_confirm":
+		editToLoading(chatID, query.Message.MessageID, "🔄 Actualizando todos los contenedores...")
+		
+		go func() {
+			configMutex.Lock()
+			updatesJSON := createData[chatID]["pending_updates"]
+			delete(createData, chatID)
+			configMutex.Unlock()
+			
+			if updatesJSON == "" {
+				sendMessageWithClose(chatID, "❌ Error: No hay actualizaciones pendientes")
+				return
+			}
+			
+			type updateInfo struct {
+				ImageTag   string `json:"imageTag"`
+				Containers []struct {
+					Name    string `json:"name"`
+					Project string `json:"project"`
+				} `json:"containers"`
+				OldID string `json:"oldID"`
+				NewID string `json:"newID"`
+			}
+			
+			var updates []updateInfo
+			if err := json.Unmarshal([]byte(updatesJSON), &updates); err != nil {
+				sendMessageWithClose(chatID, "❌ Error al parsear actualizaciones: "+err.Error())
+				return
+			}
+			
+			// Update all containers in parallel
+			type result struct {
+				container string
+				success   bool
+				err       error
+			}
+			
+			results := make(chan result, 100)
+			var wg sync.WaitGroup
+			semaphore := make(chan struct{}, 5) // Max 5 concurrent updates
+			
+			totalContainers := 0
+			for _, upd := range updates {
+				for _, c := range upd.Containers {
+					totalContainers++
+					wg.Add(1)
+					semaphore <- struct{}{}
+					
+					go func(containerName, project string) {
+						defer wg.Done()
+						defer func() { <-semaphore }()
+						
+						var err error
+						if project != "" {
+							// Compose service
+							workDir := getComposeWorkDir(project)
+							if workDir == "" {
+								results <- result{containerName, false, fmt.Errorf("project dir not found")}
+								return
+							}
+							
+							composeFile := findComposeFile(workDir)
+							if composeFile == "" {
+								results <- result{containerName, false, fmt.Errorf("compose file not found")}
+								return
+							}
+							
+							// Pull and up
+							_, err = runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", containerName)
+							if err == nil {
+								_, err = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+							}
+						} else {
+							// Standalone container
+							err = recreateWithNewImage(containerName)
+						}
+						
+						results <- result{containerName, err == nil, err}
+					}(c.Name, c.Project)
+				}
+			}
+			
+			// Wait for all updates to complete
+			go func() {
+				wg.Wait()
+				close(results)
+			}()
+			
+			// Collect results
+			successes := []string{}
+			failures := []string{}
+			
+			for res := range results {
+				if res.success {
+					successes = append(successes, res.container)
+				} else {
+					errMsg := "unknown error"
+					if res.err != nil {
+						errMsg = res.err.Error()
+					}
+					failures = append(failures, fmt.Sprintf("%s (%s)", res.container, errMsg))
+				}
+			}
+			
+			// Send final report
+			text := fmt.Sprintf("📊 *Actualización Masiva Completada*\n\n"+
+				"✅ Exitosos: %d\n"+
+				"❌ Fallidos: %d\n"+
+				"📦 Total: %d\n\n", len(successes), len(failures), totalContainers)
+			
+			if len(successes) > 0 {
+				text += "*Actualizados:*\n"
+				for _, name := range successes {
+					text += fmt.Sprintf("✅ `%s`\n", name)
+				}
+				text += "\n"
+			}
+			
+			if len(failures) > 0 {
+				text += "*Fallidos:*\n"
+				for _, name := range failures {
+					text += fmt.Sprintf("❌ %s\n", name)
+				}
+			}
+			
+			sendMessageWithClose(chatID, text)
+		}()
+		
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
 	
@@ -2921,6 +3098,124 @@ func runImageUpdateCheckWithFeedback(chatID int64) {
 		sendMessageWithClose(chatID, "✅ No hay actualizaciones de digest\n\n_Verificando tags más recientes..._")
 	}
 }
+func handleUpdateAll(chatID int64) {
+	loadingID := sendLoading(chatID, "🔍 Buscando actualizaciones disponibles...")
+	
+	ctx := context.Background()
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		deleteMsg(chatID, loadingID)
+		sendMessageWithClose(chatID, "❌ Error: "+err.Error())
+		return
+	}
+
+	// Group containers by image
+	type containerInfo struct {
+		name    string
+		project string
+	}
+	imageMap := make(map[string][]containerInfo)
+
+	for _, c := range containers {
+		name := strings.TrimPrefix(c.Names[0], "/")
+		inspect, _ := cli.ContainerInspect(ctx, c.ID)
+		project := inspect.Config.Labels["com.docker.compose.project"]
+		imageTag := inspect.Config.Image
+		imageMap[imageTag] = append(imageMap[imageTag], containerInfo{name, project})
+	}
+
+	// Check for updates
+	type updateInfo struct {
+		imageTag   string
+		containers []containerInfo
+		oldID      string
+		newID      string
+	}
+	
+	updates := []updateInfo{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 10)
+
+	for imageTag, ctrs := range imageMap {
+		wg.Add(1)
+		semaphore <- struct{}{}
+		
+		go func(imgTag string, containers []containerInfo) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+			
+			inspect, _ := cli.ContainerInspect(ctx, containers[0].name)
+			localID := inspect.Image
+
+			reader, err := cli.ImagePull(ctx, imgTag, image.PullOptions{})
+			if err == nil {
+				io.Copy(io.Discard, reader)
+				reader.Close()
+			}
+
+			imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imgTag)
+			newID := imgInspect.ID
+
+			if localID != "" && newID != "" && localID != newID {
+				mu.Lock()
+				updates = append(updates, updateInfo{
+					imageTag:   imgTag,
+					containers: containers,
+					oldID:      localID,
+					newID:      newID,
+				})
+				mu.Unlock()
+			}
+		}(imageTag, ctrs)
+	}
+
+	wg.Wait()
+	deleteMsg(chatID, loadingID)
+
+	if len(updates) == 0 {
+		sendMessageWithClose(chatID, "✅ Todos los contenedores están actualizados")
+		return
+	}
+
+	// Build confirmation message
+	text := fmt.Sprintf("⚠️ *Actualizar TODOS los contenedores*\n\n"+
+		"Se encontraron *%d actualizaciones* disponibles:\n\n", len(updates))
+	
+	totalContainers := 0
+	for _, upd := range updates {
+		totalContainers += len(upd.containers)
+		containerNames := []string{}
+		for _, c := range upd.containers {
+			containerNames = append(containerNames, c.name)
+		}
+		text += fmt.Sprintf("🔄 `%s`\n   Contenedores: %s\n\n", 
+			upd.imageTag, strings.Join(containerNames, ", "))
+	}
+	
+	text += fmt.Sprintf("📦 *Total: %d contenedores*\n\n", totalContainers)
+	text += "⚠️ Esta acción recreará todos los contenedores listados."
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Confirmar y actualizar", "updateall_confirm"),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "close"),
+		),
+	)
+	bot.Send(msg)
+	
+	// Store updates in a temporary map for the callback
+	configMutex.Lock()
+	if createData[chatID] == nil {
+		createData[chatID] = make(map[string]string)
+	}
+	updatesJSON, _ := json.Marshal(updates)
+	createData[chatID]["pending_updates"] = string(updatesJSON)
+	configMutex.Unlock()
+}
+
 func handleAutoUpdate(chatID int64) {
 	enabled := []string{}
 	for name := range autoUpdateContainers {
@@ -4231,6 +4526,7 @@ func main() {
 		// Images & Updates
 		{Command: "images", Description: getText("menu_images")},
 		{Command: "checkupdates", Description: getText("menu_checkupdates")},
+		{Command: "updateall", Description: "🔄 Actualizar todos los contenedores"},
 		{Command: "autoupdate", Description: getText("menu_autoupdate")},
 		{Command: "trackimage", Description: getText("menu_trackimage")},
 		{Command: "trackchart", Description: getText("menu_trackchart")},
@@ -4436,6 +4732,8 @@ func main() {
 					sendMessageWithClose(chatID, "🔍 Buscando actualizaciones...")
 					runImageUpdateCheckWithFeedback(chatID)
 				}()
+			case "updateall":
+				go handleUpdateAll(chatID)
 			case "autoupdate":
 				go handleAutoUpdate(chatID)
 			case "trackimage":

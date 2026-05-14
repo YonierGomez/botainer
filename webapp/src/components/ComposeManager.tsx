@@ -111,21 +111,33 @@ export default function ComposeManager({ onClose, getAuthHeaders }: ComposeManag
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        onClick={() => handleAction(project, 'up')}
+                        onClick={() => {
+                          if (confirm(`Start all services in ${project.name}?`)) {
+                            handleAction(project, 'up')
+                          }
+                        }}
                         disabled={executing === `${project.name}-up`}
                         className="px-3 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors text-sm disabled:opacity-50"
                       >
                         {executing === `${project.name}-up` ? '⏳' : '▶️'} Up
                       </button>
                       <button
-                        onClick={() => handleAction(project, 'restart')}
+                        onClick={() => {
+                          if (confirm(`Restart all services in ${project.name}?`)) {
+                            handleAction(project, 'restart')
+                          }
+                        }}
                         disabled={executing === `${project.name}-restart`}
                         className="px-3 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition-colors text-sm disabled:opacity-50"
                       >
                         {executing === `${project.name}-restart` ? '⏳' : '🔄'} Restart
                       </button>
                       <button
-                        onClick={() => handleAction(project, 'pull')}
+                        onClick={() => {
+                          if (confirm(`Pull all images for ${project.name}?`)) {
+                            handleAction(project, 'pull')
+                          }
+                        }}
                         disabled={executing === `${project.name}-pull`}
                         className="px-3 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors text-sm disabled:opacity-50"
                       >
