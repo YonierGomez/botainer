@@ -1147,7 +1147,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					
 					var err error
 					if project != "" {
-						// Compose: simple docker compose up -d <service>
+						// Compose: pull + recreate
 						workDir := getComposeWorkDir(project)
 						if workDir == "" {
 							log.Printf("[updateall] ERROR: workdir not found for project %s", project)
@@ -1162,6 +1162,15 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 							continue
 						}
 						
+						// Step 1: Stop container
+						log.Printf("[updateall] Stopping: %s", containerName)
+						runCmdWithTimeout(30*time.Second, "docker", "stop", containerName)
+						
+						// Step 2: Remove container
+						log.Printf("[updateall] Removing: %s", containerName)
+						runCmdWithTimeout(30*time.Second, "docker", "rm", containerName)
+						
+						// Step 3: Up with new image
 						log.Printf("[updateall] Running: docker compose -f %s up -d %s", composeFile, containerName)
 						output, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
 						if err != nil {
