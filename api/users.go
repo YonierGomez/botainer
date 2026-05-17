@@ -69,13 +69,12 @@ func (s *UserStore) load() {
 	s.auditLog = userData.AuditLog
 }
 
-func (s *UserStore) save() error {
-	s.mu.RLock()
+// saveLocked writes data to disk. Caller MUST hold s.mu.
+func (s *UserStore) saveLocked() error {
 	userData := UserData{
 		Users:    s.users,
 		AuditLog: s.auditLog,
 	}
-	s.mu.RUnlock()
 	data, err := json.MarshalIndent(userData, "", "  ")
 	if err != nil {
 		return err
@@ -86,7 +85,7 @@ func (s *UserStore) save() error {
 func (s *UserStore) GetOrCreateUser(userID, username string) *User {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	user, exists := s.users[userID]
 	if !exists {
 		user = &User{
@@ -97,10 +96,10 @@ func (s *UserStore) GetOrCreateUser(userID, username string) *User {
 			LastSeen:  time.Now(),
 		}
 		s.users[userID] = user
-		s.save()
+		s.saveLocked()
 	} else {
 		user.LastSeen = time.Now()
-		s.save()
+		s.saveLocked()
 	}
 	return user
 }
@@ -108,19 +107,19 @@ func (s *UserStore) GetOrCreateUser(userID, username string) *User {
 func (s *UserStore) UpdateRole(userID string, role Role) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	user, exists := s.users[userID]
 	if !exists {
 		return nil
 	}
 	user.Role = role
-	return s.save()
+	return s.saveLocked()
 }
 
 func (s *UserStore) GetUsers() []*User {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	users := make([]*User, 0, len(s.users))
 	for _, user := range s.users {
 		users = append(users, user)
@@ -131,7 +130,7 @@ func (s *UserStore) GetUsers() []*User {
 func (s *UserStore) LogAction(userID, username, action, resource string, success bool, details string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	log := AuditLog{
 		ID:        time.Now().Format("20060102150405") + "-" + userID,
 		UserID:    userID,
@@ -146,13 +145,13 @@ func (s *UserStore) LogAction(userID, username, action, resource string, success
 	if len(s.auditLog) > 1000 {
 		s.auditLog = s.auditLog[len(s.auditLog)-1000:]
 	}
-	s.save()
+	s.saveLocked()
 }
 
 func (s *UserStore) GetAuditLog(limit int) []AuditLog {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if limit <= 0 || limit > len(s.auditLog) {
 		limit = len(s.auditLog)
 	}
@@ -167,12 +166,12 @@ func (s *UserStore) GetAuditLog(limit int) []AuditLog {
 func (s *UserStore) CanPerformAction(userID, action string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	user, exists := s.users[userID]
 	if !exists {
 		return false
 	}
-	
+
 	switch user.Role {
 	case RoleAdmin:
 		return true

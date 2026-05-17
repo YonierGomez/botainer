@@ -8,20 +8,20 @@ import (
 )
 
 type Template struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Image       string            `json:"image"`
-	Ports       []string          `json:"ports"`
-	Volumes     []string          `json:"volumes"`
-	Env         map[string]string `json:"env"`
-	Network     string            `json:"network"`
-	RestartPolicy string          `json:"restart_policy"`
-	CreatedBy   string            `json:"created_by"`
-	CreatedAt   time.Time         `json:"created_at"`
-	Public      bool              `json:"public"`
-	UsageCount  int               `json:"usage_count"`
-	Tags        []string          `json:"tags"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	Image         string            `json:"image"`
+	Ports         []string          `json:"ports"`
+	Volumes       []string          `json:"volumes"`
+	Env           map[string]string `json:"env"`
+	Network       string            `json:"network"`
+	RestartPolicy string            `json:"restart_policy"`
+	CreatedBy     string            `json:"created_by"`
+	CreatedAt     time.Time         `json:"created_at"`
+	Public        bool              `json:"public"`
+	UsageCount    int               `json:"usage_count"`
+	Tags          []string          `json:"tags"`
 }
 
 type TemplateStore struct {
@@ -49,9 +49,8 @@ func (s *TemplateStore) load() {
 	}
 }
 
-func (s *TemplateStore) save() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+// saveLocked writes data to disk. Caller MUST hold s.mu.
+func (s *TemplateStore) saveLocked() error {
 	data, err := json.MarshalIndent(s.templates, "", "  ")
 	if err != nil {
 		return err
@@ -66,7 +65,7 @@ func (s *TemplateStore) Create(template *Template) error {
 	template.CreatedAt = time.Now()
 	template.UsageCount = 0
 	s.templates[template.ID] = template
-	return s.save()
+	return s.saveLocked()
 }
 
 func (s *TemplateStore) Get(id string) (*Template, bool) {
@@ -103,7 +102,7 @@ func (s *TemplateStore) Delete(id, userID string) error {
 		return nil
 	}
 	delete(s.templates, id)
-	return s.save()
+	return s.saveLocked()
 }
 
 func (s *TemplateStore) IncrementUsage(id string) {
@@ -111,6 +110,6 @@ func (s *TemplateStore) IncrementUsage(id string) {
 	defer s.mu.Unlock()
 	if template, exists := s.templates[id]; exists {
 		template.UsageCount++
-		s.save()
+		s.saveLocked()
 	}
 }

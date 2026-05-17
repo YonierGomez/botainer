@@ -141,6 +141,7 @@ Expected output: `Bot iniciado: @botainerbot`
 
 - All code is in `main.go` (single-file architecture)
 - Go standard error handling — no panic in handlers
+- **Error message handling**: Always use `truncateError(err, maxLen)` instead of `err.Error()[:n]` to avoid slice bounds panics
 - Telegram commands are registered automatically via `setMyCommands` on startup
 - Notifications run in a goroutine watching Docker events
 - Image update checks run every 6 hours in a separate goroutine

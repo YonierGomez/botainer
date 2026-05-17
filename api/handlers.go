@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
@@ -24,6 +25,31 @@ type APIResponse struct {
 	Data      interface{} `json:"data,omitempty"`
 	Error     string      `json:"error,omitempty"`
 	Timestamp int64       `json:"timestamp"`
+}
+
+// containerFirstName returns the first name of a container (without leading "/").
+// Falls back to the short container ID if no names are available.
+func containerFirstName(c types.Container) string {
+	if len(c.Names) == 0 {
+		if len(c.ID) >= 12 {
+			return c.ID[:12]
+		}
+		return c.ID
+	}
+	return strings.TrimPrefix(c.Names[0], "/")
+}
+
+// findComposeFilePath returns the path to the compose file in the given directory,
+// trying all common filenames. Returns empty string if none found.
+func findComposeFilePath(dir string) string {
+	names := []string{"compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"}
+	for _, name := range names {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 func (s *Server) sendJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -59,7 +85,7 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetContainer(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	ctx := context.Background()
 	inspect, err := s.docker.ContainerInspect(ctx, id)
 	if err != nil {
@@ -72,7 +98,7 @@ func (s *Server) handleGetContainer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	ctx := context.Background()
 	if err := s.docker.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
 		s.sendError(w, http.StatusInternalServerError, err.Error())
@@ -84,7 +110,7 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	ctx := context.Background()
 	timeout := 10
 	if err := s.docker.ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout}); err != nil {
@@ -97,7 +123,7 @@ func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRestartContainer(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	ctx := context.Background()
 	timeout := 10
 	if err := s.docker.ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout}); err != nil {
@@ -110,27 +136,27 @@ func (s *Server) handleRestartContainer(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	// Get tail parameter from query string
 	tail := r.URL.Query().Get("tail")
 	if tail == "" {
 		tail = "100"
 	}
-	
+
 	ctx := context.Background()
 	options := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Tail:       tail,
 	}
-	
+
 	logs, err := s.docker.ContainerLogs(ctx, id, options)
 	if err != nil {
 		s.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer logs.Close()
-	
+
 	// Read all logs into a string
 	// Docker logs use a multiplexed stream format with 8-byte headers
 	var logContent string
@@ -160,11 +186,11 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	
+
 	if logContent == "" {
 		logContent = "No logs available"
 	}
-	
+
 	// Return as JSON
 	s.sendJSON(w, http.StatusOK, logContent)
 }
@@ -182,7 +208,7 @@ func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	ctx := context.Background()
 	stats, err := s.docker.ContainerStats(ctx, id, false)
 	if err != nil {
@@ -190,13 +216,13 @@ func (s *Server) handleContainerStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer stats.Body.Close()
-	
+
 	var v container.StatsResponse
 	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
 		s.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	
+
 	// Calculate CPU percentage
 	cpuPercent := 0.0
 	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
@@ -208,7 +234,7 @@ func (s *Server) handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	if systemDelta > 0 && cpuDelta > 0 {
 		cpuPercent = (cpuDelta / systemDelta) * numCPUs * 100.0
 	}
-	
+
 	// Calculate memory in GB
 	memUsage := float64(v.MemoryStats.Usage) / 1024 / 1024 / 1024
 	memLimit := float64(v.MemoryStats.Limit) / 1024 / 1024 / 1024
@@ -216,21 +242,21 @@ func (s *Server) handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	if memLimit > 0 {
 		memPercent = (memUsage / memLimit) * 100.0
 	}
-	
+
 	result := map[string]interface{}{
 		"cpu_percent":    cpuPercent,
 		"memory_usage":   memUsage,
 		"memory_limit":   memLimit,
 		"memory_percent": memPercent,
 	}
-	
+
 	s.sendJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleContainerMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	// Get duration from query (default 1h)
 	durationStr := r.URL.Query().Get("duration")
 	duration := time.Hour
@@ -239,7 +265,7 @@ func (s *Server) handleContainerMetrics(w http.ResponseWriter, r *http.Request) 
 			duration = d
 		}
 	}
-	
+
 	metrics := s.metricsStore.GetLast(id, duration)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -257,7 +283,7 @@ func (s *Server) handleAllMetrics(w http.ResponseWriter, r *http.Request) {
 			duration = d
 		}
 	}
-	
+
 	metrics := s.metricsStore.GetLast("", duration)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -286,7 +312,7 @@ func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {
 				"ipv4": endpoint.IPv4Address,
 			})
 		}
-		
+
 		result = append(result, map[string]interface{}{
 			"id":         net.ID[:12],
 			"name":       net.Name,
@@ -316,30 +342,30 @@ func (s *Server) handleCreateContainer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-	
+
 	// Create container config
 	config := &container.Config{
 		Image: req.Image,
 		Env:   req.Env,
 	}
-	
+
 	// Host config with ports and volumes
 	hostConfig := &container.HostConfig{
 		PortBindings: make(map[nat.Port][]nat.PortBinding),
 		Binds:        req.Volumes,
 	}
-	
+
 	// Parse port mappings
 	for containerPort, hostPort := range req.Ports {
 		port := nat.Port(containerPort)
 		hostConfig.PortBindings[port] = []nat.PortBinding{{HostPort: hostPort}}
 	}
-	
+
 	// Set restart policy
 	if req.Restart != "" {
 		hostConfig.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(req.Restart)}
 	}
-	
+
 	// Network config
 	networkConfig := &network.NetworkingConfig{}
 	if req.Network != "" {
@@ -347,20 +373,20 @@ func (s *Server) handleCreateContainer(w http.ResponseWriter, r *http.Request) {
 			req.Network: {},
 		}
 	}
-	
+
 	// Create container
 	resp, err := s.docker.ContainerCreate(ctx, config, hostConfig, networkConfig, nil, req.Name)
 	if err != nil {
 		s.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	
+
 	// Start container
 	if err := s.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		s.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	
+
 	s.sendJSON(w, http.StatusOK, map[string]string{
 		"id":      resp.ID,
 		"message": "Container created and started",
@@ -375,16 +401,17 @@ func (s *Server) handleListComposeProjects(w http.ResponseWriter, r *http.Reques
 	}
 
 	projects := make([]map[string]interface{}, 0)
-	
+
 	// Find compose files
 	filepath.Walk(workspace, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
-		if info.Name() == "docker-compose.yml" || info.Name() == "compose.yaml" {
+		switch info.Name() {
+		case "docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml":
 			dir := filepath.Dir(path)
 			projectName := filepath.Base(dir)
-			
+
 			projects = append(projects, map[string]interface{}{
 				"name": projectName,
 				"path": dir,
@@ -407,18 +434,24 @@ func (s *Server) handleComposeAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	composeFile := findComposeFilePath(req.Path)
+	if composeFile == "" {
+		s.sendError(w, http.StatusBadRequest, "No compose file found in "+req.Path)
+		return
+	}
+
 	var cmd *exec.Cmd
 	switch req.Action {
 	case "up":
-		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "up", "-d")
+		cmd = exec.Command("docker", "compose", "-f", composeFile, "up", "-d")
 	case "down":
-		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "down")
+		cmd = exec.Command("docker", "compose", "-f", composeFile, "down")
 	case "restart":
-		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "restart")
+		cmd = exec.Command("docker", "compose", "-f", composeFile, "restart")
 	case "pull":
-		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "pull")
+		cmd = exec.Command("docker", "compose", "-f", composeFile, "pull")
 	case "ps":
-		cmd = exec.Command("docker", "compose", "-f", filepath.Join(req.Path, "compose.yaml"), "ps", "--format", "json")
+		cmd = exec.Command("docker", "compose", "-f", composeFile, "ps", "--format", "json")
 	default:
 		s.sendError(w, http.StatusBadRequest, "Invalid action")
 		return
@@ -453,7 +486,7 @@ func (s *Server) handleBulkAction(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 	results := make(map[string]interface{})
-	
+
 	for _, id := range req.ContainerIDs {
 		var err error
 		switch req.Action {
@@ -471,7 +504,7 @@ func (s *Server) handleBulkAction(w http.ResponseWriter, r *http.Request) {
 			results[id] = "invalid action"
 			continue
 		}
-		
+
 		if err != nil {
 			results[id] = err.Error()
 		} else {
@@ -522,7 +555,7 @@ func (s *Server) handleExportMetrics(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "json"
 	}
-	
+
 	durationStr := r.URL.Query().Get("duration")
 	duration := 24 * time.Hour
 	if durationStr != "" {
@@ -530,17 +563,17 @@ func (s *Server) handleExportMetrics(w http.ResponseWriter, r *http.Request) {
 			duration = d
 		}
 	}
-	
+
 	containerID := r.URL.Query().Get("container")
 	metrics := s.metricsStore.GetLast(containerID, duration)
-	
+
 	if format == "csv" {
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", "attachment; filename=metrics.csv")
-		
+
 		// Write CSV header
 		w.Write([]byte("timestamp,container_id,container_name,cpu_percent,memory_usage_gb,memory_limit_gb,memory_percent\n"))
-		
+
 		// Write data
 		for _, m := range metrics {
 			line := fmt.Sprintf("%d,%s,%s,%.2f,%.2f,%.2f,%.2f\n",
@@ -562,7 +595,7 @@ func (s *Server) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["id"]
-	
+
 	var req struct {
 		Role Role `json:"role"`
 	}
@@ -570,17 +603,17 @@ func (s *Server) handleUpdateUserRole(w http.ResponseWriter, r *http.Request) {
 		s.sendError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
-	
+
 	if req.Role != RoleAdmin && req.Role != RoleOperator && req.Role != RoleViewer {
 		s.sendError(w, http.StatusBadRequest, "Invalid role")
 		return
 	}
-	
+
 	if err := s.userStore.UpdateRole(userID, req.Role); err != nil {
 		s.sendError(w, http.StatusInternalServerError, "Failed to update role")
 		return
 	}
-	
+
 	s.userStore.LogAction(userID, "", "update_role", "user:"+userID, true, string(req.Role))
 	s.sendJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
 }
@@ -593,7 +626,7 @@ func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
 			limit = l
 		}
 	}
-	
+
 	logs := s.userStore.GetAuditLog(limit)
 	s.sendJSON(w, http.StatusOK, logs)
 }
@@ -612,30 +645,30 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		s.sendError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
-	
+
 	if template.Name == "" || template.Image == "" {
 		s.sendError(w, http.StatusBadRequest, "Name and image are required")
 		return
 	}
-	
+
 	if err := s.templateStore.Create(&template); err != nil {
 		s.sendError(w, http.StatusInternalServerError, "Failed to create template")
 		return
 	}
-	
+
 	s.sendJSON(w, http.StatusCreated, template)
 }
 
 func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	template, exists := s.templateStore.Get(id)
 	if !exists {
 		s.sendError(w, http.StatusNotFound, "Template not found")
 		return
 	}
-	
+
 	s.sendJSON(w, http.StatusOK, template)
 }
 
@@ -643,25 +676,25 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 	userID := r.URL.Query().Get("user_id")
-	
+
 	if err := s.templateStore.Delete(id, userID); err != nil {
 		s.sendError(w, http.StatusInternalServerError, "Failed to delete template")
 		return
 	}
-	
+
 	s.sendJSON(w, http.StatusOK, map[string]string{"message": "Template deleted"})
 }
 
 func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
-	
+
 	template, exists := s.templateStore.Get(id)
 	if !exists {
 		s.sendError(w, http.StatusNotFound, "Template not found")
 		return
 	}
-	
+
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -669,9 +702,9 @@ func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 		s.sendError(w, http.StatusBadRequest, "Container name required")
 		return
 	}
-	
+
 	ctx := context.Background()
-	
+
 	// Parse ports
 	portBindings := nat.PortMap{}
 	exposedPorts := nat.PortSet{}
@@ -683,16 +716,16 @@ func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 			exposedPorts[containerPort] = struct{}{}
 		}
 	}
-	
+
 	// Parse volumes
 	binds := template.Volumes
-	
+
 	// Parse env
 	env := make([]string, 0, len(template.Env))
 	for k, v := range template.Env {
 		env = append(env, k+"="+v)
 	}
-	
+
 	// Create container
 	resp, err := s.docker.ContainerCreate(ctx,
 		&container.Config{
@@ -713,18 +746,18 @@ func (s *Server) handleDeployTemplate(w http.ResponseWriter, r *http.Request) {
 		nil,
 		req.Name,
 	)
-	
+
 	if err != nil {
 		s.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create container: %v", err))
 		return
 	}
-	
+
 	// Start container
 	if err := s.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		s.sendError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start container: %v", err))
 		return
 	}
-	
+
 	s.templateStore.IncrementUsage(id)
 	s.sendJSON(w, http.StatusCreated, map[string]string{"id": resp.ID, "message": "Container deployed from template"})
 }
@@ -749,11 +782,11 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updates := []UpdateInfo{}
-	
+
 	// Group containers by image
 	imageMap := make(map[string][]string)
 	for _, c := range containers {
-		name := strings.TrimPrefix(c.Names[0], "/")
+		name := containerFirstName(c)
 		inspect, err := s.docker.ContainerInspect(ctx, c.ID)
 		if err != nil {
 			continue
@@ -776,7 +809,7 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request) {
 		// Inspect remote image (no pull, just metadata)
 		distInspect, err := s.docker.DistributionInspect(ctx, imageTag, "")
 		hasUpdate := false
-		
+
 		if err == nil {
 			remoteDigest := distInspect.Descriptor.Digest.String()
 			// Compare digests
