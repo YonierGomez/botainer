@@ -7,7 +7,7 @@ Botainer is an open-source Telegram bot written in Go that enables remote Docker
 **Repository**: https://github.com/YonierGomez/botainer  
 **Landing Page**: https://yoniergomez.github.io/botainer/  
 **Docker Hub**: https://hub.docker.com/r/yoniergomez/botainer  
-**Version**: 1.2.0  
+**Version**: 2.4.1  
 **Author**: Yonier Gomez (https://yonier.com)
 
 ---
@@ -427,21 +427,46 @@ newgrp docker
 
 ## Version History
 
-### v1.2.0 (Current)
+### v2.4.1 (Current)
+- 🐛 Fix runtime panic on `c.Names[0]` in `api/metrics.go` → `containerFirstName(c)`
+- ♻️ Add `resolveComposeFile()` helper, replace 4 repeated patterns in update flows
+- 🧹 Remove duplicate keyboard in `handleStart`
+
+### v2.4.0
+- 🐛 Fix `/logs` and `/logfile` garbled output using `stdcopy.StdCopy`
+- 🐛 Fix webapp logs in `api/handlers.go` (TTY detection + UTF-8 sanitization)
+- 🐛 Fix deadlock risk in `api/alerts.go`
+- 🔔 New compact notification format with Compose project context
+- 🔄 Telegram Markdown fallback on send errors
+
+### v2.3.1
+- 🎨 Compact UI redesign (40% more information density)
+- 🐛 Fixed historical charts metrics API response format
+- 🐛 Fixed container ID mismatch (12-char truncation)
+
+### v2.3.0
+- 👥 Multi-user support with role-based access control
+- 📋 Audit log viewer
+- 📦 Template library (public/private, one-click deploy)
+
+### v2.2.1
+- 🔄 Bulk operations (start/stop/restart/delete multiple containers)
+- 🐳 Docker Compose project management
+- 🌐 Network visualizer
+
+### v2.2.0
+- 📈 Historical charts (CPU/RAM, 1h/24h/7d)
+- 📥 Export metrics as CSV/JSON
+- 🚨 Configurable alerts with Telegram notifications
+
+### v2.0.0
+- 🎉 Telegram Mini App (visual dashboard)
+- ⚡ Real-time container management
+- 🔒 HMAC-SHA256 Telegram auth
+
+### v1.2.0
 - ✨ Remote Docker image tracking (`/trackimage`)
 - ✨ Helm chart monitoring from Artifact Hub (`/trackchart`)
-- ✨ Support for Artifact Hub URLs
-- 🔧 Container force delete with confirmation
-- 📝 Updated documentation and landing page
-
-### v1.1.0
-- 🌐 Multi-language support (Spanish, English)
-- 🔧 Improved error handling
-- 📊 Enhanced statistics display
 
 ### v1.0.0
-- 🎉 Initial release
-- 🐳 25+ Docker management commands
-- 🔔 Real-time notifications
-- 📁 Docker Compose support
-- 🔍 Auto diagnostics
+- 🎉 Initial release — 25+ Docker management commands

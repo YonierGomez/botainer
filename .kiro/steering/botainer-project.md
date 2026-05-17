@@ -7,7 +7,7 @@ Botainer is an open-source Telegram bot written in Go that allows managing Docke
 - **Repo**: https://github.com/YonierGomez/botainer
 - **Landing**: https://yoniergomez.github.io/botainer/
 - **Docker Hub**: https://hub.docker.com/r/yoniergomez/botainer
-- **Version**: 1.2.0
+- **Version**: 2.4.1
 - **Author**: Yonier Gomez — https://yonier.com
 
 ---
@@ -113,7 +113,7 @@ Expected output: `Bot iniciado: @botainerbot`
 
 ---
 
-## Key Features (v1.2.0)
+## Key Features (v2.4.1)
 
 ### Remote Image Tracking
 - **Command**: `/trackimage`

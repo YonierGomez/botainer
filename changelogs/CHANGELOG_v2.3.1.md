@@ -91,4 +91,4 @@ docker compose up -d --build
 
 ## What's Next?
 
-See [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md) for upcoming features in Phase 2.3 (Advanced Updates).
+See [changelogs/](.) for upcoming releases and feature history.

@@ -319,10 +319,13 @@ Thanks to all users providing feedback and feature requests. Your input drives c
 
 ## 📝 Version History
 
+- **v2.4.1** (May 17, 2026) - Code quality, panic fixes, resolveComposeFile helper
+- **v2.4.0** (May 17, 2026) - Logs fix, update reliability, new notification format
+- **v2.3.1** (May 7, 2026) - Compact UI Redesign
 - **v2.3.0** (May 7, 2026) - Collaboration Suite
 - **v2.2.1** (May 6, 2026) - Complete Management Suite
 - **v2.2.0** (May 6, 2026) - Advanced Management Release
-- **v2.0.0** (Previous) - Mini App Initial Release
+- **v2.0.0** (May 6, 2026) - Mini App Initial Release
 
 ---
 
