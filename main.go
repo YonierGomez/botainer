@@ -3786,23 +3786,24 @@ func runImageUpdateCheck() int {
 			}
 
 			var msgText string
-			if len(autoUpdated) > 0 {
-				msgText = fmt.Sprintf("🔁 %s *Auto-Update aplicado*\nImagen: `%s`\nTamaño: `%s`\nContenedor(es): `%s`\n\n📦 Versión anterior: `...%s`\n✅ Versión nueva: `...%s`\n\n🚀 Actualizado: `%s`",
-					icon, imageTag, sizeText, strings.Join(names, "`, `"), oldVer, newVer, strings.Join(autoUpdated, "`, `"))
-				if len(autoErrors) > 0 {
-					msgText += "\n⚠️ Errores: " + strings.Join(autoErrors, "; ")
-				}
-			} else {
-				msgText = fmt.Sprintf("🆕 %s *Nueva versión disponible*\nImagen: `%s`\nTamaño: `%s`\nContenedor(es): `%s`\n\n📦 Versión anterior: `...%s`\n✅ Versión nueva: `...%s`",
-					icon, imageTag, sizeText, strings.Join(names, "`, `"), oldVer, newVer)
-			}
-
+			projectLine := ""
 			if len(projectSet) > 0 {
 				projects := make([]string, 0, len(projectSet))
 				for p := range projectSet {
 					projects = append(projects, p)
 				}
-				msgText += fmt.Sprintf("\nProyecto(s): `%s`", strings.Join(projects, "`, `"))
+				projectLine = fmt.Sprintf("\n🗂 Proyecto: `%s`", strings.Join(projects, "`, `"))
+			}
+
+			if len(autoUpdated) > 0 {
+				msgText = fmt.Sprintf("🔁 *Auto-Update aplicado*\n\n`%s`\n━━━━━━━━━━━━━━━━\n📦 antes  `%s`\n✅ ahora   `%s`\n💾 %s · %s %s%s\n\n🚀 Actualizado: `%s`",
+					imageTag, oldVer, newVer, sizeText, icon, strings.Join(names, "`, `"), projectLine, strings.Join(autoUpdated, "`, `"))
+				if len(autoErrors) > 0 {
+					msgText += "\n⚠️ Errores: " + strings.Join(autoErrors, "; ")
+				}
+			} else {
+				msgText = fmt.Sprintf("🔔 *Actualización disponible*\n\n`%s`\n━━━━━━━━━━━━━━━━\n📦 antes  `%s`\n✅ ahora   `%s`\n💾 %s · %s %s%s",
+					imageTag, oldVer, newVer, sizeText, icon, strings.Join(names, "`, `"), projectLine)
 			}
 
 			m := tgbotapi.NewMessage(notifyChatID, msgText)
@@ -4249,8 +4250,8 @@ func checkTrackedImages(chatID int64) {
 			sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
 		}
 
-		msgText := fmt.Sprintf("🆕 *Nueva versión disponible*\nImagen trackeada: `%s`\nTamaño: `%s`\n\n📦 Versión anterior: `...%s`\n✅ Versión nueva: `...%s`",
-			imageTag, sizeText, oldVer, newVer)
+		msgText := fmt.Sprintf("🔔 *Actualización disponible*\n\n`%s`\n━━━━━━━━━━━━━━━━\n📦 antes  `%s`\n✅ ahora   `%s`\n💾 %s · 🐳 trackeada",
+			imageTag, oldVer, newVer, sizeText)
 
 		m := tgbotapi.NewMessage(chatID, msgText)
 		m.ParseMode = "Markdown"
