@@ -1503,6 +1503,8 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 	}()
 
+
+
 	if query.Message == nil {
 		bot.Request(tgbotapi.NewCallback(query.ID, ""))
 		return
@@ -2180,6 +2182,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			ShowStderr: true,
 			Tail:       "30",
 		})
+
 		{
 			lines := strings.Split(logs, "\n")
 			highlighted := []string{}
@@ -2223,7 +2226,13 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			msg := tgbotapi.NewMessage(chatID, out)
 			msg.ParseMode = "Markdown"
 			msg.ReplyMarkup = keyboard
-			bot.Send(msg)
+			if _, sendErr := bot.Send(msg); sendErr != nil {
+				log.Printf("[logs] send error for %s: %v | content len: %d", target, sendErr, len(out))
+				// Retry without ParseMode in case Markdown is broken by log content
+				msg2 := tgbotapi.NewMessage(chatID, fmt.Sprintf("📊 Logs de %s\n\n%s", target, logsText))
+				msg2.ReplyMarkup = keyboard
+				bot.Send(msg2)
+			}
 			bot.Request(tgbotapi.NewCallback(query.ID, ""))
 			return
 		}
@@ -5577,6 +5586,7 @@ func main() {
 	u.Timeout = 60
 	updates := bot.GetUpdatesChan(u)
 
+	log.Printf("Listening for updates...")
 	for update := range updates {
 		if update.Message != nil {
 			chatID := update.Message.Chat.ID
