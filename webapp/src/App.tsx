@@ -74,7 +74,6 @@ function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [logs, setLogs] = useState<string>('')
   const [loadingLogs, setLoadingLogs] = useState(false)
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [stats, setStats] = useState<any>(null)
   const [loadingStats, setLoadingStats] = useState(false)
 
@@ -119,7 +118,6 @@ function App() {
       
       // Success - update containers
       setContainers(result.data || [])
-      if (isInitialLoad) setIsInitialLoad(false)
       
     } catch (err) {
       console.error('Fetch error:', err)
@@ -131,7 +129,7 @@ function App() {
         setLoading(false)
       }
     }
-  }, [getAuthHeaders, isInitialLoad])
+  }, [getAuthHeaders])
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined
