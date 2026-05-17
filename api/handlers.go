@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	"github.com/gorilla/mux"
 )
@@ -137,13 +140,20 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	// Get tail parameter from query string
 	tail := r.URL.Query().Get("tail")
 	if tail == "" {
 		tail = "100"
 	}
 
 	ctx := context.Background()
+
+	// Check if container uses TTY (TTY containers don't use Docker's multiplexed stream format)
+	inspect, err := s.docker.ContainerInspect(ctx, id)
+	if err != nil {
+		s.sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	options := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -157,41 +167,26 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer logs.Close()
 
-	// Read all logs into a string
-	// Docker logs use a multiplexed stream format with 8-byte headers
 	var logContent string
-	buf := make([]byte, 8192)
-	for {
-		n, err := logs.Read(buf)
-		if n > 0 {
-			// Process the buffer, skipping Docker's 8-byte headers
-			i := 0
-			for i < n {
-				if i+8 > n {
-					break
-				}
-				// Read the 4-byte size from header (bytes 4-7)
-				size := int(buf[i+4])<<24 | int(buf[i+5])<<16 | int(buf[i+6])<<8 | int(buf[i+7])
-				i += 8
-				if i+size > n {
-					// Partial message, add what we have
-					logContent += string(buf[i:n])
-					break
-				}
-				logContent += string(buf[i : i+size])
-				i += size
-			}
+	if inspect.Config.Tty {
+		// TTY containers: raw stream, no multiplexed headers
+		data, readErr := io.ReadAll(logs)
+		if readErr != nil && readErr != io.EOF {
+			s.sendError(w, http.StatusInternalServerError, readErr.Error())
+			return
 		}
-		if err != nil {
-			break
-		}
+		logContent = string(data)
+	} else {
+		// Non-TTY containers: Docker multiplexed stream (stdout + stderr with 8-byte headers)
+		var stdout, stderr bytes.Buffer
+		stdcopy.StdCopy(&stdout, &stderr, logs)
+		logContent = stdout.String() + stderr.String()
 	}
 
 	if logContent == "" {
 		logContent = "No logs available"
 	}
 
-	// Return as JSON
 	s.sendJSON(w, http.StatusOK, logContent)
 }
 
