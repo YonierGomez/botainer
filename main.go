@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/YonierGomez/botainer/api"
@@ -27,6 +29,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -656,39 +659,60 @@ func validatePostUpdate(containerName string) error {
 	}
 
 	// Check logs for common error patterns
-	logOptions := container.LogsOptions{
+	logStr := readContainerLogs(ctx, cli, containerName, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Tail:       "50",
-	}
-
-	logs, err := cli.ContainerLogs(ctx, containerName, logOptions)
-	if err == nil {
-		defer logs.Close()
-		logData, _ := io.ReadAll(logs)
-		logStr := string(logData)
-
-		// Check for common error patterns
-		errorPatterns := []string{
-			"fatal error",
-			"panic:",
-		}
-
-		errorCount := 0
+	})
+	if logStr != "" {
+		errorPatterns := []string{"fatal error", "panic:"}
 		for _, pattern := range errorPatterns {
 			if strings.Contains(strings.ToLower(logStr), pattern) {
-				errorCount++
+				log.Printf("[validation] Warning: Found fatal error patterns in logs")
+				return fmt.Errorf("fatal error patterns found in container logs")
 			}
-		}
-
-		if errorCount > 0 {
-			log.Printf("[validation] Warning: Found fatal error patterns in logs")
-			return fmt.Errorf("fatal error patterns found in container logs")
 		}
 	}
 
 	log.Printf("[validation] Post-update validation passed for: %s", containerName)
 	return nil
+}
+
+// readContainerLogs reads Docker container logs handling both TTY and non-TTY containers.
+// Non-TTY containers use Docker's multiplexed stream format (8-byte headers per frame);
+// TTY containers use a raw stream. Returns sanitized UTF-8 text safe for Telegram/JSON.
+func readContainerLogs(ctx context.Context, cli *client.Client, containerID string, opts container.LogsOptions) string {
+	inspect, err := cli.ContainerInspect(ctx, containerID)
+	isTTY := err == nil && inspect.Config.Tty
+
+	reader, err := cli.ContainerLogs(ctx, containerID, opts)
+	if err != nil {
+		return ""
+	}
+	defer reader.Close()
+
+	var content string
+	if isTTY {
+		data, _ := io.ReadAll(reader)
+		content = string(data)
+	} else {
+		var stdout, stderr bytes.Buffer
+		stdcopy.StdCopy(&stdout, &stderr, reader)
+		content = stdout.String() + stderr.String()
+	}
+
+	// Sanitize: replace invalid UTF-8 and drop non-printable control chars (keep \n \t \r)
+	content = strings.Map(func(r rune) rune {
+		if r == utf8.RuneError {
+			return '?'
+		}
+		if r < 0x20 && r != '\n' && r != '\t' && r != '\r' {
+			return -1
+		}
+		return r
+	}, strings.ToValidUTF8(content, "?"))
+
+	return content
 }
 
 // Load language translations
@@ -2102,15 +2126,13 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				icon := getIcon(target)
 				out = fmt.Sprintf("✅ %s *%s* iniciado\n\n🟢 Estado: `running`\n📊 CPU: `%s`\n💾 RAM: `%s`", icon, target, stat.CPU, stat.Mem)
 			} else {
-				logsReader, _ := cli.ContainerLogs(ctx, target, container.LogsOptions{
+				startLogs := readContainerLogs(ctx, cli, target, container.LogsOptions{
 					ShowStdout: true,
 					ShowStderr: true,
 					Tail:       "20",
 				})
-				logsBytes, _ := io.ReadAll(logsReader)
-				logsReader.Close()
 				icon := getIcon(target)
-				out = fmt.Sprintf("⚠️ %s *%s* no inició correctamente\n\n🔴 Estado: `%s`\n\n📋 Últimos logs:\n```\n%s\n```", icon, target, inspect.State.Status, string(logsBytes))
+				out = fmt.Sprintf("⚠️ %s *%s* no inició correctamente\n\n🔴 Estado: `%s`\n\n📋 Últimos logs:\n```\n%s\n```", icon, target, inspect.State.Status, startLogs)
 			}
 		}
 
@@ -2153,16 +2175,12 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 	case "logs":
-		logsReader, err := cli.ContainerLogs(ctx, target, container.LogsOptions{
+		logs := readContainerLogs(ctx, cli, target, container.LogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Tail:       "30",
 		})
-		if err == nil {
-			logsBytes, _ := io.ReadAll(logsReader)
-			logsReader.Close()
-			logs := string(logsBytes)
-
+		{
 			lines := strings.Split(logs, "\n")
 			highlighted := []string{}
 			for _, line := range lines {
@@ -2177,9 +2195,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			}
 
 			logsText := strings.Join(highlighted, "\n")
-			// Truncate if too long (Telegram limit is 4096, leave room for formatting)
 			if len(logsText) > 3500 {
 				logsText = logsText[:3500] + "\n...(truncado)"
+			}
+			if logsText == "" {
+				logsText = "No hay logs disponibles"
 			}
 
 			out = fmt.Sprintf("📊 *Logs de %s*\n```\n%s\n```", target, logsText)
@@ -2212,14 +2232,12 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		parts := strings.SplitN(target, ":", 2)
 		if len(parts) == 2 {
 			containerName, filter := parts[0], parts[1]
-			logsReader, _ := cli.ContainerLogs(ctx, containerName, container.LogsOptions{
+			logsText := readContainerLogs(ctx, cli, containerName, container.LogsOptions{
 				ShowStdout: true,
 				ShowStderr: true,
 				Tail:       "100",
 			})
-			logsBytes, _ := io.ReadAll(logsReader)
-			logsReader.Close()
-			lines := strings.Split(string(logsBytes), "\n")
+			lines := strings.Split(logsText, "\n")
 			filtered := []string{}
 			for _, line := range lines {
 				if strings.Contains(strings.ToLower(line), filter) {
@@ -2238,30 +2256,28 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 	case "logs_more":
-		logsReader, _ := cli.ContainerLogs(ctx, target, container.LogsOptions{
+		logsText := readContainerLogs(ctx, cli, target, container.LogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Tail:       "100",
 		})
-		logsBytes, _ := io.ReadAll(logsReader)
-		logsReader.Close()
-		logsText := string(logsBytes)
 		if len(logsText) > 3500 {
 			logsText = logsText[:3500] + "\n...(truncado, usa 💾 Descargar para ver completo)"
+		}
+		if logsText == "" {
+			logsText = "No hay logs disponibles"
 		}
 		out = fmt.Sprintf("📊 *Logs completos de %s*\n```\n%s\n```", target, logsText)
 
 	case "logfile":
-		logsReader, err := cli.ContainerLogs(ctx, target, container.LogsOptions{
+		logsText := readContainerLogs(ctx, cli, target, container.LogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Tail:       "1000",
 		})
-		if err == nil {
-			logsBytes, _ := io.ReadAll(logsReader)
-			logsReader.Close()
+		if logsText != "" {
 			filename := fmt.Sprintf("/tmp/%s_%d.log", target, time.Now().Unix())
-			os.WriteFile(filename, logsBytes, 0644)
+			os.WriteFile(filename, []byte(logsText), 0644)
 			doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(filename))
 			doc.Caption = fmt.Sprintf("📋 Logs de *%s*", target)
 			doc.ParseMode = "Markdown"
@@ -3369,19 +3385,13 @@ func monitorEvents() {
 						exitInfo = fmt.Sprintf("\n💀 Exit code: `%s`", exitCode)
 					}
 
-					logsReader, err := cli.ContainerLogs(ctx, name, container.LogsOptions{
+					lastLogs := readContainerLogs(ctx, cli, name, container.LogsOptions{
 						ShowStdout: true,
 						ShowStderr: true,
 						Tail:       "5",
 					})
-					lastLogs := ""
-					if err == nil {
-						logBytes, _ := io.ReadAll(logsReader)
-						logsReader.Close()
-						lastLogs = string(logBytes)
-						if len(lastLogs) > 500 {
-							lastLogs = lastLogs[len(lastLogs)-500:]
-						}
+					if len(lastLogs) > 500 {
+						lastLogs = lastLogs[len(lastLogs)-500:]
 					}
 
 					logsSection := ""
