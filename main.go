@@ -837,6 +837,20 @@ func findComposeFile(workDir string) string {
 	return ""
 }
 
+// resolveComposeFile resolves workDir and composeFile for a given compose project name.
+// Returns an error if either cannot be found.
+func resolveComposeFile(project string) (workDir, composeFile string, err error) {
+	workDir = getComposeWorkDir(project)
+	if workDir == "" {
+		return "", "", fmt.Errorf("workdir not found for project %s", project)
+	}
+	composeFile = findComposeFile(workDir)
+	if composeFile == "" {
+		return workDir, "", fmt.Errorf("compose file not found in %s", workDir)
+	}
+	return workDir, composeFile, nil
+}
+
 // serviceExistsInCompose checks if a service name exists in the compose file
 func serviceExistsInCompose(composeFile, serviceName string) bool {
 	data, err := os.ReadFile(composeFile)
@@ -1031,72 +1045,33 @@ func handleStart(chatID int64) {
 		miniAppURL = "http://localhost:8080" // Default for local testing
 	}
 
-	var keyboard tgbotapi.InlineKeyboardMarkup
-
-	// Add Dashboard button if Mini App URL is configured
-	// Note: WebApp button requires telegram-bot-api v6+, currently using v5
-	if miniAppURL != "" && miniAppURL != "http://localhost:8080" {
-		// TODO: Upgrade to telegram-bot-api v6 to enable WebApp button
-		// keyboard = tgbotapi.NewInlineKeyboardMarkup(
-		// 	tgbotapi.NewInlineKeyboardRow(
-		// 		tgbotapi.NewInlineKeyboardButtonWebApp("🐳 Dashboard", tgbotapi.WebAppInfo{URL: miniAppURL}),
-		// 	),
-		keyboard = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
-				tgbotapi.NewInlineKeyboardButtonData("📊 PS", "cmd:ps"),
-				tgbotapi.NewInlineKeyboardButtonData("🖥️ Stats", "cmd:stats"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("📁 Compose", "cmd:compose"),
-				tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "cmd:inspect_menu"),
-				tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🖼️ Images", "cmd:images"),
-				tgbotapi.NewInlineKeyboardButtonData("💾 Volumes", "cmd:volumes"),
-				tgbotapi.NewInlineKeyboardButtonData("🌐 Networks", "cmd:networks"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
-				tgbotapi.NewInlineKeyboardButtonData("🔧 Diagnose", "cmd:diagnose"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-			),
-		)
-	} else {
-		keyboard = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
-				tgbotapi.NewInlineKeyboardButtonData("📊 PS", "cmd:ps"),
-				tgbotapi.NewInlineKeyboardButtonData("🖥️ Stats", "cmd:stats"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("📁 Compose", "cmd:compose"),
-				tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "cmd:inspect_menu"),
-				tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🖼️ Images", "cmd:images"),
-				tgbotapi.NewInlineKeyboardButtonData("💾 Volumes", "cmd:volumes"),
-				tgbotapi.NewInlineKeyboardButtonData("🌐 Networks", "cmd:networks"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
-				tgbotapi.NewInlineKeyboardButtonData("🔧 Diagnose", "cmd:diagnose"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-			),
-		)
-	}
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 PS", "cmd:ps"),
+			tgbotapi.NewInlineKeyboardButtonData("🖥️ Stats", "cmd:stats"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📁 Compose", "cmd:compose"),
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Inspect", "cmd:inspect_menu"),
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ Exec", "cmd:exec_menu"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🖼️ Images", "cmd:images"),
+			tgbotapi.NewInlineKeyboardButtonData("💾 Volumes", "cmd:volumes"),
+			tgbotapi.NewInlineKeyboardButtonData("🌐 Networks", "cmd:networks"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Buscar updates", "cmd:check_updates"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
+			tgbotapi.NewInlineKeyboardButtonData("🔧 Diagnose", "cmd:diagnose"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+		),
+	)
 
 	msg := tgbotapi.NewMessage(chatID, "🐳 *Botainer*\nGestiona tus contenedores Docker")
 	msg.ParseMode = "Markdown"
@@ -1638,21 +1613,14 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 				// Pre-validation
 				if project != "" {
-					workDir := getComposeWorkDir(project)
-					if workDir == "" {
-						log.Printf("[updateall] ERROR: workdir not found for project %s", project)
-						updateTransactionProgress(idx, "failed", "workdir not found")
-						failures = append(failures, fmt.Sprintf("%s (workdir not found)", containerName))
+					_, cf, resolveErr := resolveComposeFile(project)
+					if resolveErr != nil {
+						log.Printf("[updateall] ERROR: %v", resolveErr)
+						updateTransactionProgress(idx, "failed", resolveErr.Error())
+						failures = append(failures, fmt.Sprintf("%s (%v)", containerName, resolveErr))
 						continue
 					}
-
-					composeFile = findComposeFile(workDir)
-					if composeFile == "" {
-						log.Printf("[updateall] ERROR: compose file not found in %s", workDir)
-						updateTransactionProgress(idx, "failed", "compose file not found")
-						failures = append(failures, fmt.Sprintf("%s (compose file not found)", containerName))
-						continue
-					}
+					composeFile = cf
 
 					// Store compose file in transaction
 					configMutex.Lock()
@@ -1863,40 +1831,35 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 			if project != "" {
 				// Compose service - edit compose file and run up
-				workDir := getComposeWorkDir(project)
-				if workDir == "" {
-					out = "❌ No se encontró el directorio del proyecto"
+				_, composeFile, resolveErr := resolveComposeFile(project)
+				if resolveErr != nil {
+					out = fmt.Sprintf("❌ %v", resolveErr)
+				} else if !serviceExistsInCompose(composeFile, service) {
+					out = fmt.Sprintf("❌ El servicio `%s` no existe en compose.yaml", service)
 				} else {
-					composeFile := findComposeFile(workDir)
-					if composeFile == "" {
-						out = fmt.Sprintf("❌ No se encontró archivo compose en: `%s`", workDir)
-					} else if !serviceExistsInCompose(composeFile, service) {
-						out = fmt.Sprintf("❌ El servicio `%s` no existe en compose.yaml", service)
-					} else {
-						// Use sed to replace the image tag in compose file
-						sedCmd := fmt.Sprintf("sed -i 's|image: %s|image: %s|g' %s", oldTag, newTag, composeFile)
-						sedOut, sedErr := runCmdWithTimeout(30*time.Second, "sh", "-c", sedCmd)
+					// Use sed to replace the image tag in compose file
+					sedCmd := fmt.Sprintf("sed -i 's|image: %s|image: %s|g' %s", oldTag, newTag, composeFile)
+					sedOut, sedErr := runCmdWithTimeout(30*time.Second, "sh", "-c", sedCmd)
 
-						if sedErr != nil {
-							out = fmt.Sprintf("❌ Error al editar compose: %v\n%s", sedErr, sedOut)
+					if sedErr != nil {
+						out = fmt.Sprintf("❌ Error al editar compose: %v\n%s", sedErr, sedOut)
+					} else {
+						// Run docker compose up -d --pull always --no-deps for the service
+						upOut, upErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
+						if upErr != nil {
+							log.Printf("Compose up error: %v\nOutput: %s", upErr, upOut)
+							out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
+							if len(out) > 3800 {
+								out = out[:3800] + "\n...\n```"
+							}
 						} else {
-							// Run docker compose up -d --pull always --no-deps for the service
-							upOut, upErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
-							if upErr != nil {
-								log.Printf("Compose up error: %v\nOutput: %s", upErr, upOut)
-								out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
-								if len(out) > 3800 {
-									out = out[:3800] + "\n...\n```"
-								}
+							// Wait and verify status using container name (Docker API)
+							time.Sleep(3 * time.Second)
+							inspect, err := cli.ContainerInspect(ctx, containerName)
+							if err == nil && inspect.State.Running {
+								out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n🟢 Estado: Corriendo", containerName, newTag)
 							} else {
-								// Wait and verify status using container name (Docker API)
-								time.Sleep(3 * time.Second)
-								inspect, err := cli.ContainerInspect(ctx, containerName)
-								if err == nil && inspect.State.Running {
-									out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n🟢 Estado: Corriendo", containerName, newTag)
-								} else {
-									out = fmt.Sprintf("⚠️ *%s* actualizado a `%s`\n\n🔴 Estado: Detenido (requiere atención)", containerName, newTag)
-								}
+								out = fmt.Sprintf("⚠️ *%s* actualizado a `%s`\n\n🔴 Estado: Detenido (requiere atención)", containerName, newTag)
 							}
 						}
 					}
@@ -2527,15 +2490,9 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Actualizando *%s*...", service))
 
-		workDir := getComposeWorkDir(project)
-		if workDir == "" {
-			out = "❌ No se encontró el directorio del proyecto"
-			break
-		}
-
-		composeFile := findComposeFile(workDir)
-		if composeFile == "" {
-			out = fmt.Sprintf("❌ No se encontró archivo compose en: `%s`", workDir)
+		_, composeFile, resolveErr := resolveComposeFile(project)
+		if resolveErr != nil {
+			out = fmt.Sprintf("❌ %v", resolveErr)
 			break
 		}
 
@@ -3761,18 +3718,13 @@ func runImageUpdateCheck() int {
 				var recErr error
 				if c.project != "" {
 					// Compose container: use docker compose up (respects service name)
-					workDir := getComposeWorkDir(c.project)
-					if workDir == "" {
-						recErr = fmt.Errorf("workdir not found for project %s", c.project)
+					_, composeFile, resolveErr := resolveComposeFile(c.project)
+					if resolveErr != nil {
+						recErr = resolveErr
 					} else {
-						composeFile := findComposeFile(workDir)
-						if composeFile == "" {
-							recErr = fmt.Errorf("compose file not found in %s", workDir)
-						} else {
-							out, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", c.service)
-							if err != nil {
-								recErr = fmt.Errorf("compose up failed: %s", out)
-							}
+						out, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", c.service)
+						if err != nil {
+							recErr = fmt.Errorf("compose up failed: %s", out)
 						}
 					}
 				} else {

@@ -148,7 +148,7 @@ func CollectMetrics(dockerClient *client.Client, store *MetricsStore, alertStore
 			point := MetricPoint{
 				Timestamp:     time.Now().Unix(),
 				ContainerID:   c.ID[:12],
-				ContainerName: c.Names[0],
+				ContainerName: containerFirstName(c),
 				CPUPercent:    cpuPercent,
 				MemoryUsage:   memUsage,
 				MemoryLimit:   memLimit,
@@ -159,8 +159,8 @@ func CollectMetrics(dockerClient *client.Client, store *MetricsStore, alertStore
 
 			// Check alerts
 			if alertStore != nil {
-				alertStore.CheckMetric(c.ID[:12], c.Names[0], cpuPercent, memPercent)
-			}
+			alertStore.CheckMetric(c.ID[:12], containerFirstName(c), cpuPercent, memPercent)
+		}
 		}
 	}
 }
