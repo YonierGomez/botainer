@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/YonierGomez/botainer/api"
@@ -50,6 +52,7 @@ var (
 	templates               = make(map[string]ContainerTemplate)
 	maintenanceMode         bool
 	maintenancePaused       []string // containers paused by maintenance mode
+	updateTransaction       *UpdateTransaction // track ongoing update for recovery
 	
 	// Phase 1: Alerts & Monitoring
 	resourceAlerts          = make(map[string]ResourceAlert) // container -> alert config
@@ -101,6 +104,7 @@ type Config struct {
 	Templates            map[string]ContainerTemplate `json:"templates"`
 	MaintenanceMode      bool                         `json:"maintenanceMode"`
 	MaintenancePaused    []string                     `json:"maintenancePaused"` // containers paused by maintenance
+	UpdateInProgress     *UpdateTransaction           `json:"updateInProgress"` // track ongoing updates
 	
 	// Phase 1
 	ResourceAlerts map[string]ResourceAlert `json:"resourceAlerts"`
@@ -115,6 +119,27 @@ type Config struct {
 	
 	// Phase 4
 	Registries map[string]Registry `json:"registries"`
+}
+
+// UpdateTransaction tracks an update operation for recovery
+type UpdateTransaction struct {
+	ID            string                 `json:"id"`
+	StartTime     time.Time              `json:"startTime"`
+	ChatID        int64                  `json:"chatId"`
+	Containers    []ContainerUpdate      `json:"containers"`
+	CompletedIdx  int                    `json:"completedIdx"` // index of last completed update
+	Status        string                 `json:"status"`       // "in_progress", "completed", "failed"
+}
+
+type ContainerUpdate struct {
+	Name         string `json:"name"`
+	Service      string `json:"service,omitempty"` // Docker Compose service name (may differ from container name)
+	Project      string `json:"project"`
+	OldImage     string `json:"oldImage"`
+	NewImage     string `json:"newImage"`
+	ComposeFile  string `json:"composeFile,omitempty"`
+	Status       string `json:"status"` // "pending", "success", "failed"
+	Error        string `json:"error,omitempty"`
 }
 
 // RollbackEntry stores a previous image for a container
@@ -302,6 +327,7 @@ func saveConfig() {
 		Templates:            templates,
 		MaintenanceMode:      maintenanceMode,
 		MaintenancePaused:    maintenancePaused,
+		UpdateInProgress:     updateTransaction,
 		ResourceAlerts:       resourceAlerts,
 		HealthChecks:         healthChecks,
 		ReportSchedule:       reportSchedule,
@@ -324,6 +350,336 @@ func saveConfig() {
 	if err := os.WriteFile(configFile, data, 0644); err != nil {
 		log.Printf("Error saving config: %v", err)
 	}
+}
+
+// Backup compose file before modification
+func backupComposeFile(composeFile string) (string, error) {
+	backupDir := "/data/backups"
+	os.MkdirAll(backupDir, 0755)
+	
+	timestamp := time.Now().Format("20060102-150405")
+	backupPath := fmt.Sprintf("%s/%s.%s.bak", backupDir, filepath.Base(composeFile), timestamp)
+	
+	data, err := os.ReadFile(composeFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read compose file: %w", err)
+	}
+	
+	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write backup: %w", err)
+	}
+	
+	log.Printf("[backup] Created backup: %s", backupPath)
+	return backupPath, nil
+}
+
+// Restore compose file from backup
+func restoreComposeFile(composeFile, backupPath string) error {
+	data, err := os.ReadFile(backupPath)
+	if err != nil {
+		return fmt.Errorf("failed to read backup: %w", err)
+	}
+	
+	if err := os.WriteFile(composeFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to restore compose file: %w", err)
+	}
+	
+	log.Printf("[backup] Restored from backup: %s", backupPath)
+	return nil
+}
+
+// Validate compose file syntax
+func validateComposeFile(composeFile string) error {
+	output, err := runCmdWithTimeout(10*time.Second, "docker", "compose", "-f", composeFile, "config", "--quiet")
+	if err != nil {
+		return fmt.Errorf("invalid compose file: %s", output)
+	}
+	return nil
+}
+
+// Retry function with exponential backoff
+func retryWithBackoff(operation func() error, maxRetries int, baseDelay time.Duration) error {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		if i > 0 {
+			delay := baseDelay * time.Duration(1<<uint(i-1)) // exponential: 5s, 10s, 20s
+			log.Printf("[retry] Attempt %d/%d failed, waiting %v before retry", i, maxRetries, delay)
+			time.Sleep(delay)
+		}
+		
+		lastErr = operation()
+		if lastErr == nil {
+			return nil
+		}
+		log.Printf("[retry] Attempt %d/%d error: %v", i+1, maxRetries, lastErr)
+	}
+	return fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// Transaction management functions
+
+// startUpdateTransaction creates a new update transaction
+func startUpdateTransaction(chatID int64, containers []ContainerUpdate) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	
+	updateTransaction = &UpdateTransaction{
+		ID:           fmt.Sprintf("upd_%d_%d", chatID, time.Now().Unix()),
+		StartTime:    time.Now(),
+		ChatID:       chatID,
+		Containers:   containers,
+		CompletedIdx: -1,
+		Status:       "in_progress",
+	}
+	
+	log.Printf("[transaction] Started: %s with %d containers", updateTransaction.ID, len(containers))
+	saveConfig()
+}
+
+// updateTransactionProgress updates the progress of current container
+func updateTransactionProgress(idx int, status, errorMsg string) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	
+	if updateTransaction == nil || idx >= len(updateTransaction.Containers) {
+		return
+	}
+	
+	updateTransaction.Containers[idx].Status = status
+	updateTransaction.Containers[idx].Error = errorMsg
+	if status == "success" {
+		updateTransaction.CompletedIdx = idx
+	}
+	
+	log.Printf("[transaction] Container %d/%d: %s - %s", 
+		idx+1, len(updateTransaction.Containers), 
+		updateTransaction.Containers[idx].Name, status)
+	saveConfig()
+}
+
+// completeUpdateTransaction marks transaction as completed
+func completeUpdateTransaction(status string) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	
+	if updateTransaction == nil {
+		return
+	}
+	
+	updateTransaction.Status = status
+	log.Printf("[transaction] Completed: %s with status: %s", updateTransaction.ID, status)
+	saveConfig()
+	
+	// Clear transaction after successful completion
+	if status == "completed" {
+		updateTransaction = nil
+		saveConfig()
+	}
+}
+
+// clearUpdateTransaction removes the current transaction
+func clearUpdateTransaction() {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	
+	if updateTransaction != nil {
+		log.Printf("[transaction] Cleared: %s", updateTransaction.ID)
+		updateTransaction = nil
+		saveConfig()
+	}
+}
+
+// Pre-update validation functions
+
+// validatePreUpdate performs all pre-update checks.
+// serviceName is the Docker Compose service name; if empty, containerName is used as fallback.
+func validatePreUpdate(containerName, project, composeFile, newImage string, serviceName ...string) error {
+	// 1. Validate compose file if it's a compose project
+	if project != "" && composeFile != "" {
+		if err := validateComposeFile(composeFile); err != nil {
+			return fmt.Errorf("compose file validation failed: %w", err)
+		}
+		
+		// 2. Validate service exists in compose (use service name if provided)
+		svcName := containerName
+		if len(serviceName) > 0 && serviceName[0] != "" {
+			svcName = serviceName[0]
+		}
+		if !serviceExistsInCompose(composeFile, svcName) {
+			return fmt.Errorf("service '%s' not found in compose file", svcName)
+		}
+	}
+	
+	// 3. Validate new image exists
+	if newImage != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		
+		reader, err := cli.ImagePull(ctx, newImage, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to pull new image '%s': %w", newImage, err)
+		}
+		io.Copy(io.Discard, reader)
+		reader.Close()
+	}
+	
+	// 4. Check disk space (require at least 1GB free)
+	if err := checkDiskSpace(1024); err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+// checkDiskSpace verifies there's enough free disk space (in MB)
+func checkDiskSpace(requiredMB int64) error {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs("/var/lib/docker", &stat); err != nil {
+		// Fallback to root if docker dir not accessible
+		if err := syscall.Statfs("/", &stat); err != nil {
+			return fmt.Errorf("failed to check disk space: %w", err)
+		}
+	}
+	
+	availableMB := int64(stat.Bavail * uint64(stat.Bsize) / 1024 / 1024)
+	if availableMB < requiredMB {
+		return fmt.Errorf("insufficient disk space: %d MB available, %d MB required", availableMB, requiredMB)
+	}
+	
+	log.Printf("[validation] Disk space OK: %d MB available", availableMB)
+	return nil
+}
+
+// checkAndRecoverTransaction checks for incomplete transactions at startup
+func checkAndRecoverTransaction() {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	
+	if updateTransaction == nil {
+		return
+	}
+	
+	// Found incomplete transaction
+	log.Printf("[recovery] Found incomplete transaction: %s (status: %s)", 
+		updateTransaction.ID, updateTransaction.Status)
+	
+	if updateTransaction.Status == "completed" || updateTransaction.Status == "failed" {
+		// Transaction finished but not cleared, just clear it
+		log.Printf("[recovery] Transaction already finished, clearing")
+		updateTransaction = nil
+		saveConfig()
+		return
+	}
+	
+	// Transaction was interrupted, notify user
+	chatID := updateTransaction.ChatID
+	completed := updateTransaction.CompletedIdx + 1
+	total := len(updateTransaction.Containers)
+	
+	text := fmt.Sprintf("⚠️ *Actualización Interrumpida Detectada*\n\n"+
+		"Se detectó una actualización que no se completó:\n\n"+
+		"🆔 ID: `%s`\n"+
+		"📅 Inicio: `%s`\n"+
+		"📊 Progreso: %d/%d contenedores\n\n"+
+		"¿Qué deseas hacer?",
+		updateTransaction.ID,
+		updateTransaction.StartTime.Format("2006-01-02 15:04:05"),
+		completed, total)
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Continuar", "recovery_continue"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("↩️ Rollback", "recovery_rollback"),
+			tgbotapi.NewInlineKeyboardButtonData("✅ Marcar completado", "recovery_complete"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Cancelar", "recovery_cancel"),
+		),
+	)
+	
+	if _, err := bot.Send(msg); err != nil {
+		log.Printf("[recovery] Failed to send recovery message: %v", err)
+	}
+}
+
+// validatePostUpdate performs post-update validation
+func validatePostUpdate(containerName string) error {
+	ctx := context.Background()
+	
+	// Wait 10 seconds for container to stabilize
+	log.Printf("[validation] Waiting 10 seconds for container to stabilize: %s", containerName)
+	time.Sleep(10 * time.Second)
+	
+	// Check if container is running
+	inspect, err := cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+	
+	if !inspect.State.Running {
+		return fmt.Errorf("container is not running (status: %s)", inspect.State.Status)
+	}
+	
+	// Check health status if health check is configured
+	if inspect.State.Health != nil {
+		log.Printf("[validation] Health status: %s", inspect.State.Health.Status)
+		if inspect.State.Health.Status == "unhealthy" {
+			return fmt.Errorf("container health check failed")
+		}
+		// If starting, wait a bit more
+		if inspect.State.Health.Status == "starting" {
+			log.Printf("[validation] Health check still starting, waiting 5 more seconds")
+			time.Sleep(5 * time.Second)
+			inspect, _ = cli.ContainerInspect(ctx, containerName)
+			if inspect.State.Health != nil && inspect.State.Health.Status == "unhealthy" {
+				return fmt.Errorf("container health check failed after waiting")
+			}
+		}
+	}
+	
+	// Check logs for common error patterns
+	logOptions := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       "50",
+	}
+	
+	logs, err := cli.ContainerLogs(ctx, containerName, logOptions)
+	if err == nil {
+		defer logs.Close()
+		logData, _ := io.ReadAll(logs)
+		logStr := string(logData)
+		
+		// Check for common error patterns
+		errorPatterns := []string{
+			"fatal error",
+			"panic:",
+			"error:",
+			"exception",
+			"failed to",
+			"cannot",
+		}
+		
+		errorCount := 0
+		for _, pattern := range errorPatterns {
+			if strings.Contains(strings.ToLower(logStr), pattern) {
+				errorCount++
+			}
+		}
+		
+		// If more than 3 error patterns found, consider it suspicious
+		if errorCount > 3 {
+			log.Printf("[validation] Warning: Found %d error patterns in logs", errorCount)
+			return fmt.Errorf("suspicious error patterns found in logs (%d occurrences)", errorCount)
+		}
+	}
+	
+	log.Printf("[validation] Post-update validation passed for: %s", containerName)
+	return nil
 }
 
 // Load language translations
@@ -369,6 +725,19 @@ func addCloseButton(keyboard tgbotapi.InlineKeyboardMarkup) tgbotapi.InlineKeybo
 		),
 	)
 	return keyboard
+}
+
+// truncateError safely truncates error messages to maxLen characters
+// Always use this instead of err.Error()[:n] to avoid slice bounds panics
+func truncateError(err error, maxLen int) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if len(msg) <= maxLen {
+		return msg
+	}
+	return msg[:maxLen]
 }
 
 func sendMessageWithClose(chatID int64, text string) {
@@ -433,6 +802,37 @@ func findComposeFile(workDir string) string {
 	}
 
 	return ""
+}
+
+// serviceExistsInCompose checks if a service name exists in the compose file
+func serviceExistsInCompose(composeFile, serviceName string) bool {
+	data, err := os.ReadFile(composeFile)
+	if err != nil {
+		return false
+	}
+	
+	// Simple check: look for "serviceName:" in the services section
+	lines := strings.Split(string(data), "\n")
+	inServices := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "services:" {
+			inServices = true
+			continue
+		}
+		if inServices && strings.HasPrefix(line, "  ") && strings.HasSuffix(trimmed, ":") {
+			// This is a service definition
+			service := strings.TrimSuffix(trimmed, ":")
+			if service == serviceName {
+				return true
+			}
+		}
+		// Exit services section if we hit another top-level key
+		if inServices && !strings.HasPrefix(line, " ") && trimmed != "" && strings.HasSuffix(trimmed, ":") {
+			break
+		}
+	}
+	return false
 }
 
 func validateComposeSetup() error {
@@ -1084,16 +1484,44 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		return
 	}
 	
+	// Recovery callbacks
+	if strings.HasPrefix(query.Data, "recovery_") {
+		bot.Send(tgbotapi.NewDeleteMessage(chatID, query.Message.MessageID))
+		bot.Request(tgbotapi.NewCallback(query.ID, ""))
+		
+		switch query.Data {
+		case "recovery_continue":
+			sendMessageWithClose(chatID, "🔄 Continuando actualización...\n\n_Esta funcionalidad estará disponible próximamente_")
+			// TODO: Implement continue from last checkpoint
+			
+		case "recovery_rollback":
+			sendMessageWithClose(chatID, "↩️ Realizando rollback...\n\n_Esta funcionalidad estará disponible próximamente_")
+			// TODO: Implement rollback of completed updates
+			
+		case "recovery_complete":
+			completeUpdateTransaction("completed")
+			sendMessageWithClose(chatID, "✅ Transacción marcada como completada")
+			
+		case "recovery_cancel":
+			clearUpdateTransaction()
+			sendMessageWithClose(chatID, "❌ Transacción cancelada y eliminada")
+		}
+		return
+	}
+	
 	if query.Data == "updateall_confirm" {
+		log.Printf("[updateall] Callback received from chatID: %d", chatID)
 		bot.Send(tgbotapi.NewDeleteMessage(chatID, query.Message.MessageID))
 		
 		go func() {
 			configMutex.Lock()
 			updatesJSON := createData[chatID]["pending_updates"]
+			log.Printf("[updateall] Retrieved updates JSON length: %d", len(updatesJSON))
 			delete(createData, chatID)
 			configMutex.Unlock()
 			
 			if updatesJSON == "" {
+				log.Printf("[updateall] ERROR: No pending updates found")
 				sendMessageWithClose(chatID, "❌ Error: No hay actualizaciones pendientes")
 				return
 			}
@@ -1102,6 +1530,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				ImageTag   string `json:"imageTag"`
 				Containers []struct {
 					Name    string `json:"name"`
+					Service string `json:"service,omitempty"`
 					Project string `json:"project"`
 				} `json:"containers"`
 				OldID string `json:"oldID"`
@@ -1115,11 +1544,29 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				return
 			}
 			
-			// Count total
-			totalContainers := 0
+			// Build transaction container list
+			var transactionContainers []ContainerUpdate
 			for _, upd := range updates {
-				totalContainers += len(upd.Containers)
+				for _, c := range upd.Containers {
+					svc := c.Service
+					if svc == "" {
+						svc = c.Name // fallback
+					}
+					transactionContainers = append(transactionContainers, ContainerUpdate{
+						Name:     c.Name,
+						Service:  svc,
+						Project:  c.Project,
+						OldImage: upd.ImageTag,
+						NewImage: upd.ImageTag,
+						Status:   "pending",
+					})
+				}
 			}
+			
+			// Start transaction
+			startUpdateTransaction(chatID, transactionContainers)
+			
+			totalContainers := len(transactionContainers)
 			
 			// Send progress message
 			progressMsg := tgbotapi.NewMessage(chatID, fmt.Sprintf("🔄 *Actualizando %d contenedores*\n\n_Iniciando..._", totalContainers))
@@ -1129,93 +1576,196 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			// Process updates
 			successes := []string{}
 			failures := []string{}
-			current := 0
+			rollbacks := []string{}
 			
-			for _, upd := range updates {
-				for _, c := range upd.Containers {
-					current++
-					containerName := c.Name
-					project := c.Project
+			for idx, containerUpd := range transactionContainers {
+				containerName := containerUpd.Name
+				project := containerUpd.Project
+				// Use service name for docker compose commands; fall back to container name
+				serviceName := containerUpd.Service
+				if serviceName == "" {
+					serviceName = containerName
+				}
+				
+				// Update progress
+				edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, 
+					fmt.Sprintf("🔄 *Actualizando %d/%d*\n\n⏳ `%s`", idx+1, totalContainers, containerName))
+				edit.ParseMode = "Markdown"
+				bot.Send(edit)
+				
+				log.Printf("[updateall] Processing %d/%d: %s (service: %s, project: %s)", idx+1, totalContainers, containerName, serviceName, project)
+				
+				var composeFile string
+				var backupPath string
+				
+				// Pre-validation
+				if project != "" {
+					workDir := getComposeWorkDir(project)
+					if workDir == "" {
+						log.Printf("[updateall] ERROR: workdir not found for project %s", project)
+						updateTransactionProgress(idx, "failed", "workdir not found")
+						failures = append(failures, fmt.Sprintf("%s (workdir not found)", containerName))
+						continue
+					}
 					
-					// Update progress
-					edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, 
-						fmt.Sprintf("🔄 *Actualizando %d/%d*\n\n⏳ `%s`", current, totalContainers, containerName))
-					edit.ParseMode = "Markdown"
-					bot.Send(edit)
+					composeFile = findComposeFile(workDir)
+					if composeFile == "" {
+						log.Printf("[updateall] ERROR: compose file not found in %s", workDir)
+						updateTransactionProgress(idx, "failed", "compose file not found")
+						failures = append(failures, fmt.Sprintf("%s (compose file not found)", containerName))
+						continue
+					}
 					
-					log.Printf("[updateall] Processing: %s (project: %s)", containerName, project)
+					// Store compose file in transaction
+					configMutex.Lock()
+					if updateTransaction != nil && idx < len(updateTransaction.Containers) {
+						updateTransaction.Containers[idx].ComposeFile = composeFile
+						saveConfig()
+					}
+					configMutex.Unlock()
 					
+					// Pre-update validation (pass service name for compose check)
+					if err := validatePreUpdate(containerName, project, composeFile, "", serviceName); err != nil {
+						log.Printf("[updateall] Pre-validation failed: %v", err)
+						updateTransactionProgress(idx, "failed", err.Error())
+						failures = append(failures, fmt.Sprintf("%s (validation: %s)", containerName, truncateError(err, 40)))
+						continue
+					}
+					
+					// Backup compose file
 					var err error
+					backupPath, err = backupComposeFile(composeFile)
+					if err != nil {
+						log.Printf("[updateall] Backup failed: %v", err)
+						updateTransactionProgress(idx, "failed", "backup failed")
+						failures = append(failures, fmt.Sprintf("%s (backup failed)", containerName))
+						continue
+					}
+					log.Printf("[updateall] Backup created: %s", backupPath)
+				}
+				
+				// Perform update with retry
+				updateErr := retryWithBackoff(func() error {
 					if project != "" {
-						// Compose: pull + recreate
-						workDir := getComposeWorkDir(project)
-						if workDir == "" {
-							log.Printf("[updateall] ERROR: workdir not found for project %s", project)
-							failures = append(failures, fmt.Sprintf("%s (workdir not found)", containerName))
-							continue
-						}
-						
-						composeFile := findComposeFile(workDir)
-						if composeFile == "" {
-							log.Printf("[updateall] ERROR: compose file not found in %s", workDir)
-							failures = append(failures, fmt.Sprintf("%s (compose file not found)", containerName))
-							continue
-						}
-						
-						// Step 1: Stop container
-						log.Printf("[updateall] Stopping: %s", containerName)
-						runCmdWithTimeout(30*time.Second, "docker", "stop", containerName)
-						
-						// Step 2: Remove container
-						log.Printf("[updateall] Removing: %s", containerName)
-						runCmdWithTimeout(30*time.Second, "docker", "rm", containerName)
-						
-						// Step 3: Up with new image
-						log.Printf("[updateall] Running: docker compose -f %s up -d %s", composeFile, containerName)
-						output, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+						// Compose update - use service name (not container name)
+						// Use --no-deps to prevent recreating related services
+						log.Printf("[updateall] Running: docker compose -f %s up -d --pull always --no-deps %s", composeFile, serviceName)
+						output, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", serviceName)
 						if err != nil {
-							log.Printf("[updateall] ERROR: %v\nOutput: %s", err, output)
-							failures = append(failures, fmt.Sprintf("%s (%s)", containerName, err.Error()[:50]))
-						} else {
-							log.Printf("[updateall] SUCCESS: %s", containerName)
-							successes = append(successes, containerName)
+							return fmt.Errorf("compose up failed: %s", output)
 						}
+						return nil
 					} else {
-						// Standalone
+						// Standalone update
 						log.Printf("[updateall] Recreating standalone: %s", containerName)
-						err = recreateWithNewImage(containerName)
-						if err != nil {
-							log.Printf("[updateall] ERROR: %v", err)
-							failures = append(failures, fmt.Sprintf("%s (%s)", containerName, err.Error()[:50]))
+						return recreateWithNewImage(containerName)
+					}
+				}, 3, 5*time.Second)
+				
+				if updateErr != nil {
+					log.Printf("[updateall] Update failed after retries: %v", updateErr)
+					updateTransactionProgress(idx, "failed", updateErr.Error())
+					failures = append(failures, fmt.Sprintf("%s (%s)", containerName, truncateError(updateErr, 50)))
+					
+					// Rollback if backup exists
+					if backupPath != "" {
+						log.Printf("[updateall] Rolling back: %s", containerName)
+						if err := restoreComposeFile(composeFile, backupPath); err != nil {
+							log.Printf("[updateall] Rollback failed: %v", err)
 						} else {
-							log.Printf("[updateall] SUCCESS: %s", containerName)
-							successes = append(successes, containerName)
+							runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", serviceName)
+							rollbacks = append(rollbacks, containerName)
 						}
 					}
+					continue
 				}
+				
+				// Post-update validation
+				if err := validatePostUpdate(containerName); err != nil {
+					log.Printf("[updateall] Post-validation failed: %v", err)
+					updateTransactionProgress(idx, "failed", "post-validation failed: "+err.Error())
+					failures = append(failures, fmt.Sprintf("%s (validation failed)", containerName))
+					
+					// Automatic rollback
+					if backupPath != "" {
+						log.Printf("[updateall] Auto-rollback due to validation failure: %s", containerName)
+						if err := restoreComposeFile(composeFile, backupPath); err != nil {
+							log.Printf("[updateall] Rollback failed: %v", err)
+						} else {
+							runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", serviceName)
+							rollbacks = append(rollbacks, containerName)
+						}
+					}
+					continue
+				}
+				
+				// Success
+				log.Printf("[updateall] SUCCESS: %s", containerName)
+				updateTransactionProgress(idx, "success", "")
+				successes = append(successes, containerName)
+			}
+			
+			// Complete transaction
+			if len(failures) == 0 {
+				completeUpdateTransaction("completed")
+			} else {
+				completeUpdateTransaction("failed")
 			}
 			
 			// Delete progress
 			bot.Send(tgbotapi.NewDeleteMessage(chatID, sentMsg.MessageID))
 			
+			// Verify status of updated containers
+			running := []string{}
+			stopped := []string{}
+			for _, name := range successes {
+				inspect, err := cli.ContainerInspect(ctx, name)
+				if err == nil && inspect.State.Running {
+					running = append(running, name)
+				} else {
+					stopped = append(stopped, name)
+				}
+			}
+			
 			// Final report
 			text := fmt.Sprintf("📊 *Actualización Completada*\n\n"+
 				"✅ Exitosos: %d\n"+
-				"❌ Fallidos: %d\n"+
-				"📦 Total: %d\n\n", len(successes), len(failures), totalContainers)
+				"❌ Fallidos: %d\n", len(successes), len(failures))
 			
-			if len(successes) > 0 {
-				text += "*Actualizados:*\n"
-				for _, name := range successes {
+			if len(rollbacks) > 0 {
+				text += fmt.Sprintf("↩️ Rollbacks: %d\n", len(rollbacks))
+			}
+			
+			text += fmt.Sprintf("📦 Total: %d\n\n", totalContainers)
+			
+			if len(running) > 0 {
+				text += "*🟢 Corriendo:*\n"
+				for _, name := range running {
 					text += fmt.Sprintf("✅ %s `%s`\n", getIcon(name), name)
 				}
 				text += "\n"
 			}
 			
+			if len(stopped) > 0 {
+				text += "*🔴 Detenidos (requieren atención):*\n"
+				for _, name := range stopped {
+					text += fmt.Sprintf("⚠️ %s `%s`\n", getIcon(name), name)
+				}
+				text += "\n"
+			}
+			
+			if len(rollbacks) > 0 {
+				text += "*↩️ Rollbacks realizados:*\n"
+				for _, name := range rollbacks {
+					text += fmt.Sprintf("🔄 %s `%s`\n", getIcon(name), name)
+				}
+				text += "\n"
+			}
+			
 			if len(failures) > 0 {
-				text += "*Fallidos:*\n"
+				text += "*❌ Fallidos:*\n"
 				for _, name := range failures {
-					text += fmt.Sprintf("❌ %s\n", name)
+					text += fmt.Sprintf("• %s\n", name)
 				}
 			}
 			
@@ -1252,7 +1802,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	}
 	
 	if strings.HasPrefix(query.Data, "newtag_update:") {
-		// Format: newtag_update:containerName|oldTag|newTag|project
+		// Format: newtag_update:containerName|oldTag|newTag|project|service
 		data := strings.TrimPrefix(query.Data, "newtag_update:")
 		parts := strings.Split(data, "|")
 		if len(parts) >= 3 {
@@ -1262,6 +1812,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			project := ""
 			if len(parts) >= 4 {
 				project = parts[3]
+			}
+			// service name for docker compose commands (added in newer versions)
+			service := containerName // fallback
+			if len(parts) >= 5 && parts[4] != "" {
+				service = parts[4]
 			}
 			
 			editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🔄 Actualizando *%s* a `%s`...", containerName, newTag))
@@ -1277,6 +1832,8 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					composeFile := findComposeFile(workDir)
 					if composeFile == "" {
 						out = fmt.Sprintf("❌ No se encontró archivo compose en: `%s`", workDir)
+					} else if !serviceExistsInCompose(composeFile, service) {
+						out = fmt.Sprintf("❌ El servicio `%s` no existe en compose.yaml", service)
 					} else {
 						// Use sed to replace the image tag in compose file
 						sedCmd := fmt.Sprintf("sed -i 's|image: %s|image: %s|g' %s", oldTag, newTag, composeFile)
@@ -1285,12 +1842,23 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 						if sedErr != nil {
 							out = fmt.Sprintf("❌ Error al editar compose: %v\n%s", sedErr, sedOut)
 						} else {
-							// Run docker compose up -d for the service
-							upOut, upErr := runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", containerName)
+							// Run docker compose up -d --pull always --no-deps for the service
+							upOut, upErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
 							if upErr != nil {
-								out = fmt.Sprintf("❌ Error al actualizar: %v\n%s", upErr, upOut)
+								log.Printf("Compose up error: %v\nOutput: %s", upErr, upOut)
+								out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
+								if len(out) > 3800 {
+									out = out[:3800] + "\n...\n```"
+								}
 							} else {
-								out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n_Compose file modificado y servicio actualizado_", containerName, newTag)
+								// Wait and verify status using container name (Docker API)
+								time.Sleep(3 * time.Second)
+								inspect, err := cli.ContainerInspect(ctx, containerName)
+								if err == nil && inspect.State.Running {
+									out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n🟢 Estado: Corriendo", containerName, newTag)
+								} else {
+									out = fmt.Sprintf("⚠️ *%s* actualizado a `%s`\n\n🔴 Estado: Detenido (requiere atención)", containerName, newTag)
+								}
 							}
 						}
 					}
@@ -1331,7 +1899,14 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 							if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 								out = fmt.Sprintf("❌ Error al iniciar contenedor: %v", err)
 							} else {
-								out = fmt.Sprintf("✅ *%s* actualizado a `%s`", containerName, newTag)
+								// Wait and verify status
+								time.Sleep(3 * time.Second)
+								inspect, err := cli.ContainerInspect(ctx, containerName)
+								if err == nil && inspect.State.Running {
+									out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n🟢 Estado: Corriendo", containerName, newTag)
+								} else {
+									out = fmt.Sprintf("⚠️ *%s* actualizado a `%s`\n\n🔴 Estado: Detenido (requiere atención)", containerName, newTag)
+								}
 							}
 						}
 					}
@@ -1588,7 +2163,14 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					highlighted = append(highlighted, line)
 				}
 			}
-			out = fmt.Sprintf("📊 *Logs de %s*\n```\n%s\n```", target, strings.Join(highlighted, "\n"))
+			
+			logsText := strings.Join(highlighted, "\n")
+			// Truncate if too long (Telegram limit is 4096, leave room for formatting)
+			if len(logsText) > 3500 {
+				logsText = logsText[:3500] + "\n...(truncado)"
+			}
+			
+			out = fmt.Sprintf("📊 *Logs de %s*\n```\n%s\n```", target, logsText)
 
 			keyboard := tgbotapi.NewInlineKeyboardMarkup(
 				tgbotapi.NewInlineKeyboardRow(
@@ -1633,7 +2215,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				}
 			}
 			if len(filtered) > 0 {
-				out = fmt.Sprintf("📊 *Logs filtrados (%s) de %s*\n```\n%s\n```", filter, containerName, strings.Join(filtered, "\n"))
+				logsText := strings.Join(filtered, "\n")
+				if len(logsText) > 3500 {
+					logsText = logsText[:3500] + "\n...(truncado)"
+				}
+				out = fmt.Sprintf("📊 *Logs filtrados (%s) de %s*\n```\n%s\n```", filter, containerName, logsText)
 			} else {
 				out = fmt.Sprintf("No se encontraron logs con '%s'", filter)
 			}
@@ -1647,7 +2233,11 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		})
 		logsBytes, _ := io.ReadAll(logsReader)
 		logsReader.Close()
-		out = fmt.Sprintf("📊 *Logs completos de %s*\n```\n%s\n```", target, string(logsBytes))
+		logsText := string(logsBytes)
+		if len(logsText) > 3500 {
+			logsText = logsText[:3500] + "\n...(truncado, usa 💾 Descargar para ver completo)"
+		}
+		out = fmt.Sprintf("📊 *Logs completos de %s*\n```\n%s\n```", target, logsText)
 
 	case "logfile":
 		logsReader, err := cli.ContainerLogs(ctx, target, container.LogsOptions{
@@ -1745,28 +2335,102 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		}
 
 	case "prune":
+		log.Printf("[prune] Starting prune operation, target: %s, chatID: %d", target, chatID)
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("🗑️ Limpiando %s...", target))
+		
 		switch target {
 		case "images":
-			report, err := cli.ImagesPrune(ctx, filters.Args{})
+			log.Printf("[prune] Pruning dangling images...")
+			report, err := cli.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", "true")))
 			if err == nil {
-				out = fmt.Sprintf("✅ Imágenes no usadas eliminadas\nEspacio liberado: %d bytes", report.SpaceReclaimed)
+				sizeMB := float64(report.SpaceReclaimed) / 1024 / 1024
+				log.Printf("[prune] Images pruned successfully: %.2f MB reclaimed", sizeMB)
+				out = fmt.Sprintf("✅ Imágenes no usadas eliminadas\n💾 Espacio liberado: %.2f MB", sizeMB)
+			} else {
+				log.Printf("[prune] ERROR pruning images: %v", err)
+				out = fmt.Sprintf("❌ Error: %s", truncateError(err, 100))
 			}
 		case "volumes":
+			log.Printf("[prune] Pruning volumes...")
 			report, err := cli.VolumesPrune(ctx, filters.Args{})
 			if err == nil {
-				out = fmt.Sprintf("✅ Volúmenes no usados eliminados\nEspacio liberado: %d bytes", report.SpaceReclaimed)
+				sizeMB := float64(report.SpaceReclaimed) / 1024 / 1024
+				log.Printf("[prune] Volumes pruned successfully: %.2f MB reclaimed", sizeMB)
+				out = fmt.Sprintf("✅ Volúmenes no usados eliminados\n💾 Espacio liberado: %.2f MB", sizeMB)
+			} else {
+				log.Printf("[prune] ERROR pruning volumes: %v", err)
+				out = fmt.Sprintf("❌ Error: %s", truncateError(err, 100))
 			}
 		case "networks":
+			log.Printf("[prune] Pruning networks...")
 			report, err := cli.NetworksPrune(ctx, filters.Args{})
 			if err == nil {
-				out = fmt.Sprintf("✅ Redes no usadas eliminadas\nRedes eliminadas: %d", len(report.NetworksDeleted))
+				log.Printf("[prune] Networks pruned successfully: %d networks deleted", len(report.NetworksDeleted))
+				out = fmt.Sprintf("✅ Redes no usadas eliminadas\n🌐 Redes eliminadas: %d", len(report.NetworksDeleted))
+			} else {
+				log.Printf("[prune] ERROR pruning networks: %v", err)
+				out = fmt.Sprintf("❌ Error: %s", truncateError(err, 100))
 			}
 		case "all":
-			imgReport, _ := cli.ImagesPrune(ctx, filters.Args{})
-			volReport, _ := cli.VolumesPrune(ctx, filters.Args{})
-			netReport, _ := cli.NetworksPrune(ctx, filters.Args{})
-			total := imgReport.SpaceReclaimed + volReport.SpaceReclaimed
-			out = fmt.Sprintf("✅ Sistema limpiado\nEspacio liberado: %d bytes\nRedes eliminadas: %d", total, len(netReport.NetworksDeleted))
+			log.Printf("[prune] Pruning all resources...")
+			
+			log.Printf("[prune] Step 1/3: Pruning images...")
+			imgReport, imgErr := cli.ImagesPrune(ctx, filters.NewArgs(filters.Arg("dangling", "true")))
+			if imgErr != nil {
+				log.Printf("[prune] ERROR pruning images: %v", imgErr)
+			} else {
+				log.Printf("[prune] Images: %.2f MB reclaimed", float64(imgReport.SpaceReclaimed)/1024/1024)
+			}
+			
+			log.Printf("[prune] Step 2/3: Pruning volumes...")
+			volReport, volErr := cli.VolumesPrune(ctx, filters.Args{})
+			if volErr != nil {
+				log.Printf("[prune] ERROR pruning volumes: %v", volErr)
+			} else {
+				log.Printf("[prune] Volumes: %.2f MB reclaimed", float64(volReport.SpaceReclaimed)/1024/1024)
+			}
+			
+			log.Printf("[prune] Step 3/3: Pruning networks...")
+			netReport, netErr := cli.NetworksPrune(ctx, filters.Args{})
+			if netErr != nil {
+				log.Printf("[prune] ERROR pruning networks: %v", netErr)
+			} else {
+				log.Printf("[prune] Networks: %d deleted", len(netReport.NetworksDeleted))
+			}
+			
+			totalSpace := float64(0)
+			if imgErr == nil {
+				totalSpace += float64(imgReport.SpaceReclaimed)
+			}
+			if volErr == nil {
+				totalSpace += float64(volReport.SpaceReclaimed)
+			}
+			
+			totalMB := totalSpace / 1024 / 1024
+			networks := 0
+			if netErr == nil {
+				networks = len(netReport.NetworksDeleted)
+			}
+			
+			log.Printf("[prune] All resources pruned: %.2f MB total, %d networks", totalMB, networks)
+			
+			// Show errors if any
+			if imgErr != nil || volErr != nil || netErr != nil {
+				errMsg := "⚠️ Limpieza completada con errores:\n\n"
+				if imgErr != nil {
+					errMsg += fmt.Sprintf("❌ Imágenes: %s\n", truncateError(imgErr, 50))
+				}
+				if volErr != nil {
+					errMsg += fmt.Sprintf("❌ Volúmenes: %s\n", truncateError(volErr, 50))
+				}
+				if netErr != nil {
+					errMsg += fmt.Sprintf("❌ Redes: %s\n", truncateError(netErr, 50))
+				}
+				errMsg += fmt.Sprintf("\n💾 Espacio liberado: %.2f MB\n🌐 Redes eliminadas: %d", totalMB, networks)
+				out = errMsg
+			} else {
+				out = fmt.Sprintf("✅ Sistema limpiado\n💾 Espacio liberado: %.2f MB\n🌐 Redes eliminadas: %d", totalMB, networks)
+			}
 		}
 
 	case "env":
@@ -1797,14 +2461,32 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = fmt.Sprintf("✅ *%s* recreado con nueva imagen", target)
 		}
 
+	case "diagnose_recreate":
+		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Recreando *%s*...", target))
+		err = recreateWithNewImage(target)
+		if err == nil {
+			// Wait and verify
+			time.Sleep(3 * time.Second)
+			inspect, err := cli.ContainerInspect(ctx, target)
+			if err == nil && inspect.State.Running {
+				out = fmt.Sprintf("✅ *%s* recreado\n\n🟢 Estado: Corriendo", target)
+			} else {
+				out = fmt.Sprintf("⚠️ *%s* recreado\n\n🔴 Estado: Detenido (requiere atención)", target)
+			}
+		}
+
 	case "compose_pullup_service":
-		// Format: project:service
-		parts := strings.SplitN(target, ":", 2)
-		if len(parts) != 2 {
+		// Format: project:service:containerName (containerName may be omitted for backward compat)
+		parts := strings.SplitN(target, ":", 3)
+		if len(parts) < 2 {
 			out = "❌ Formato inválido"
 			break
 		}
 		project, service := parts[0], parts[1]
+		containerName := service // fallback: use service name if no container name provided
+		if len(parts) == 3 && parts[2] != "" {
+			containerName = parts[2]
+		}
 
 		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Actualizando *%s*...", service))
 
@@ -1819,40 +2501,48 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			out = fmt.Sprintf("❌ No se encontró archivo compose en: `%s`", workDir)
 			break
 		}
+		
+		if !serviceExistsInCompose(composeFile, service) {
+			out = fmt.Sprintf("❌ El servicio `%s` no existe en compose.yaml", service)
+			break
+		}
 
-		log.Printf("Updating service %s in project %s with file: %s", service, project, composeFile)
+		log.Printf("Updating service %s (container: %s) in project %s with file: %s", service, containerName, project, composeFile)
 
-		// Pull only the specific service (timeout 5 minutos)
-		pullOut, pullErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "pull", service)
-		if pullErr != nil {
-			log.Printf("Compose pull error for %s: %v\nOutput: %s", service, pullErr, pullOut)
+		// Up -d with pull always and no-deps (timeout 5 minutos)
+		upOut, upErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
+		if upErr != nil {
+			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
 			
-			isLocalImageError := strings.Contains(pullOut, "pull access denied") || 
-				strings.Contains(pullOut, "repository does not exist")
+			// Check if it's a local image (no pull needed)
+			isLocalImageError := strings.Contains(upOut, "pull access denied") || 
+				strings.Contains(upOut, "repository does not exist")
 			
-			if !isLocalImageError {
-				out = fmt.Sprintf("❌ Error al hacer pull:\n```\n%s\n```", pullOut)
+			if isLocalImageError {
+				log.Printf("Local image detected for %s, retrying without pull", service)
+				// Retry without --pull for local images
+				upOut, upErr = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", service)
+			}
+			
+			if upErr != nil {
+				out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
 				if len(out) > 3800 {
 					out = out[:3800] + "\n...\n```"
 				}
 				break
 			}
-			log.Printf("Local image detected for %s, continuing with up", service)
-		}
-
-		// Up -d only the specific service (timeout 3 minutos)
-		upOut, upErr := runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", service)
-		if upErr != nil {
-			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
-			out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
-			if len(out) > 3800 {
-				out = out[:3800] + "\n...\n```"
-			}
-			break
 		}
 
 		log.Printf("Successfully updated service: %s", service)
-		out = fmt.Sprintf("✅ Contenedor *%s* actualizado correctamente", service)
+		
+		// Wait and verify status using container name (Docker API)
+		time.Sleep(3 * time.Second)
+		inspect, err := cli.ContainerInspect(ctx, containerName)
+		if err == nil && inspect.State.Running {
+			out = fmt.Sprintf("✅ *%s* actualizado correctamente\n\n🟢 Estado: Corriendo", service)
+		} else {
+			out = fmt.Sprintf("⚠️ *%s* actualizado\n\n🔴 Estado: Detenido (requiere atención)", service)
+		}
 
 	case "container_menu":
 		inspect, _ := cli.ContainerInspect(ctx, target)
@@ -2876,6 +3566,7 @@ func runImageUpdateCheck() int {
 
 	type containerInfo struct {
 		name    string
+		service string // Docker Compose service name (may differ from container name)
 		project string
 	}
 	imageMap := make(map[string][]containerInfo)
@@ -2884,8 +3575,12 @@ func runImageUpdateCheck() int {
 		name := strings.TrimPrefix(c.Names[0], "/")
 		inspect, _ := cli.ContainerInspect(ctx, c.ID)
 		project := inspect.Config.Labels["com.docker.compose.project"]
+		service := inspect.Config.Labels["com.docker.compose.service"]
+		if service == "" {
+			service = name // fallback for standalone containers
+		}
 		imageTag := inspect.Config.Image // Use the tag, not the digest
-		imageMap[imageTag] = append(imageMap[imageTag], containerInfo{name, project})
+		imageMap[imageTag] = append(imageMap[imageTag], containerInfo{name, service, project})
 	}
 
 	found := 0
@@ -2950,7 +3645,7 @@ func runImageUpdateCheck() int {
 										
 										for _, c := range ctrs {
 											rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-												tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar: "+c.name, "newtag_update:"+c.name+"|"+imgTag+"|"+newerTag+"|"+c.project),
+												tgbotapi.NewInlineKeyboardButtonData("🔄 Actualizar: "+c.name, "newtag_update:"+c.name+"|"+imgTag+"|"+newerTag+"|"+c.project+"|"+c.service),
 											))
 										}
 										
@@ -3066,7 +3761,7 @@ func runImageUpdateCheck() int {
 			if c.project != "" {
 				// Compose project: update only the specific service
 				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+c.name, "compose_pullup_service:"+c.project+":"+c.name),
+					tgbotapi.NewInlineKeyboardButtonData("🔄 Pull & Up: "+c.name, "compose_pullup_service:"+c.project+":"+c.service+":"+c.name),
 				))
 			} else {
 				// Standalone container: recreate
@@ -3131,8 +3826,9 @@ func handleUpdateAll(chatID int64) {
 
 	// Group containers by image
 	type containerInfo struct {
-		name    string
-		project string
+		Name    string `json:"name"`
+		Service string `json:"service,omitempty"` // Docker Compose service name
+		Project string `json:"project"`
 	}
 	imageMap := make(map[string][]containerInfo)
 
@@ -3140,17 +3836,21 @@ func handleUpdateAll(chatID int64) {
 		name := strings.TrimPrefix(c.Names[0], "/")
 		inspect, _ := cli.ContainerInspect(ctx, c.ID)
 		project := inspect.Config.Labels["com.docker.compose.project"]
+		service := inspect.Config.Labels["com.docker.compose.service"]
+		if service == "" {
+			service = name // fallback for standalone containers
+		}
 		imageTag := inspect.Config.Image
-		imageMap[imageTag] = append(imageMap[imageTag], containerInfo{name, project})
+		imageMap[imageTag] = append(imageMap[imageTag], containerInfo{Name: name, Service: service, Project: project})
 	}
 
 	// Check for updates in parallel
 	type updateInfo struct {
-		imageTag   string
-		containers []containerInfo
-		oldID      string
-		newID      string
-		size       int64
+		ImageTag   string          `json:"imageTag"`
+		Containers []containerInfo `json:"containers"`
+		OldID      string          `json:"oldID"`
+		NewID      string          `json:"newID"`
+		Size       int64           `json:"size"`
 	}
 	
 	updates := []updateInfo{}
@@ -3169,7 +3869,7 @@ func handleUpdateAll(chatID int64) {
 			defer wg.Done()
 			defer func() { <-semaphore }()
 			
-			inspect, _ := cli.ContainerInspect(ctx, containers[0].name)
+			inspect, _ := cli.ContainerInspect(ctx, containers[0].Name)
 			localID := inspect.Image
 
 			reader, err := cli.ImagePull(ctx, imgTag, image.PullOptions{})
@@ -3196,11 +3896,11 @@ func handleUpdateAll(chatID int64) {
 			if localID != "" && newID != "" && localID != newID {
 				mu.Lock()
 				updates = append(updates, updateInfo{
-					imageTag:   imgTag,
-					containers: containers,
-					oldID:      localID,
-					newID:      newID,
-					size:       imgInspect.Size,
+					ImageTag:   imgTag,
+					Containers: containers,
+					OldID:      localID,
+					NewID:      newID,
+					Size:       imgInspect.Size,
 				})
 				mu.Unlock()
 			}
@@ -3221,32 +3921,32 @@ func handleUpdateAll(chatID int64) {
 	
 	totalContainers := 0
 	for _, upd := range updates {
-		totalContainers += len(upd.containers)
+		totalContainers += len(upd.Containers)
 		
 		// Format size
-		sizeMB := float64(upd.size) / 1024 / 1024
+		sizeMB := float64(upd.Size) / 1024 / 1024
 		sizeText := fmt.Sprintf("%.1f MB", sizeMB)
 		if sizeMB > 1024 {
 			sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
 		}
 		
 		// Short digests
-		oldShort := upd.oldID
+		oldShort := upd.OldID
 		if len(oldShort) > 19 {
 			oldShort = "..." + oldShort[len(oldShort)-16:]
 		}
-		newShort := upd.newID
+		newShort := upd.NewID
 		if len(newShort) > 19 {
 			newShort = "..." + newShort[len(newShort)-16:]
 		}
 		
 		containerNames := []string{}
-		for _, c := range upd.containers {
-			icon := getIcon(c.name)
-			if c.project != "" {
-				containerNames = append(containerNames, fmt.Sprintf("%s %s (compose)", icon, c.name))
+		for _, c := range upd.Containers {
+			icon := getIcon(c.Name)
+			if c.Project != "" {
+				containerNames = append(containerNames, fmt.Sprintf("%s %s (compose)", icon, c.Name))
 			} else {
-				containerNames = append(containerNames, fmt.Sprintf("%s %s", icon, c.name))
+				containerNames = append(containerNames, fmt.Sprintf("%s %s", icon, c.Name))
 			}
 		}
 		
@@ -3255,7 +3955,7 @@ func handleUpdateAll(chatID int64) {
 			"   ✅ Nueva: `%s`\n"+
 			"   💾 Tamaño: `%s`\n"+
 			"   🐳 Contenedores:\n      • %s\n\n",
-			upd.imageTag, oldShort, newShort, sizeText, strings.Join(containerNames, "\n      • "))
+			upd.ImageTag, oldShort, newShort, sizeText, strings.Join(containerNames, "\n      • "))
 	}
 	
 	text += fmt.Sprintf("📊 *Total: %d contenedores*\n\n", totalContainers)
@@ -4295,38 +4995,113 @@ func generateDockerCompose(chatID int64, userID int64) {
 	delete(createData, userID)
 }
 func handleDiagnose(chatID int64) {
-	loadingID := sendLoading(chatID, "Ejecutando diagnóstico...")
-	defer deleteMsg(chatID, loadingID)
-
 	ctx := context.Background()
+	log.Printf("[diagnose] Starting diagnosis for chatID: %d", chatID)
+	
+	// Send initial message
+	statusMsg := tgbotapi.NewMessage(chatID, "🔍 *Ejecutando diagnóstico...*\n\n_Analizando contenedores..._")
+	statusMsg.ParseMode = "Markdown"
+	sentMsg, err := bot.Send(statusMsg)
+	if err != nil {
+		log.Printf("[diagnose] ERROR sending initial message: %v", err)
+		return
+	}
+	log.Printf("[diagnose] Initial message sent, ID: %d", sentMsg.MessageID)
+	
 	issues := []string{}
+	stoppedContainers := []string{}
+	unhealthyContainers := []string{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	// Check 1: Stopped containers
+	log.Printf("[diagnose] Check 1: Looking for stopped containers")
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		stoppedContainers, err := cli.ContainerList(ctx, container.ListOptions{
+		stopped, err := cli.ContainerList(ctx, container.ListOptions{
 			All:     true,
 			Filters: filters.NewArgs(filters.Arg("status", "exited")),
 		})
-		if err == nil && len(stoppedContainers) > 0 {
+		if err != nil {
+			log.Printf("[diagnose] ERROR listing stopped containers: %v", err)
+			return
+		}
+		log.Printf("[diagnose] Found %d stopped containers", len(stopped))
+		if len(stopped) > 0 {
 			mu.Lock()
-			issues = append(issues, fmt.Sprintf("⚠️ %d contenedores detenidos", len(stoppedContainers)))
+			for _, c := range stopped {
+				name := strings.TrimPrefix(c.Names[0], "/")
+				stoppedContainers = append(stoppedContainers, name)
+			}
+			issues = append(issues, fmt.Sprintf("⚠️ %d contenedores detenidos", len(stopped)))
 			mu.Unlock()
 		}
 	}()
 
-	// Check 2: High CPU usage
+	// Update: checking health
+	edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "🔍 *Ejecutando diagnóstico...*\n\n_Verificando salud de contenedores..._")
+	edit.ParseMode = "Markdown"
+	bot.Send(edit)
+
+	// Check 2: Unhealthy containers
+	log.Printf("[diagnose] Check 2: Looking for unhealthy containers")
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		running, err := cli.ContainerList(ctx, container.ListOptions{})
+		if err != nil {
+			log.Printf("[diagnose] ERROR listing running containers: %v", err)
+			return
+		}
+		log.Printf("[diagnose] Checking health of %d running containers", len(running))
+		for _, c := range running {
+			name := strings.TrimPrefix(c.Names[0], "/")
+			inspect, err := cli.ContainerInspect(ctx, c.ID)
+			if err != nil {
+				log.Printf("[diagnose] ERROR inspecting %s: %v", name, err)
+				continue
+			}
+			// Check health
+			if inspect.State.Health != nil && inspect.State.Health.Status == "unhealthy" {
+				log.Printf("[diagnose] Container %s is unhealthy", name)
+				mu.Lock()
+				unhealthyContainers = append(unhealthyContainers, name)
+				escapedName := strings.ReplaceAll(name, "_", "\\_")
+				issues = append(issues, fmt.Sprintf("🔴 %s no saludable (health check failed)", escapedName))
+				mu.Unlock()
+			}
+			// Check restart count
+			if inspect.RestartCount > 5 {
+				log.Printf("[diagnose] Container %s has %d restarts", name, inspect.RestartCount)
+				mu.Lock()
+				if !contains(unhealthyContainers, name) {
+					unhealthyContainers = append(unhealthyContainers, name)
+				}
+				escapedName := strings.ReplaceAll(name, "_", "\\_")
+				issues = append(issues, fmt.Sprintf("🔄 %s reiniciado %d veces", escapedName, inspect.RestartCount))
+				mu.Unlock()
+			}
+		}
+	}()
+
+	// Update: checking CPU
+	edit = tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "🔍 *Ejecutando diagnóstico...*\n\n_Analizando uso de CPU..._")
+	edit.ParseMode = "Markdown"
+	bot.Send(edit)
+
+	// Check 3: High CPU usage
+	log.Printf("[diagnose] Check 3: Analyzing CPU usage")
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		stats := getStats()
+		log.Printf("[diagnose] Got stats for %d containers", len(stats))
 		for name, stat := range stats {
 			var cpu float64
 			fmt.Sscanf(strings.TrimSuffix(stat.CPU, "%"), "%f", &cpu)
 			if cpu > 80 {
+				log.Printf("[diagnose] High CPU: %s at %.2f%%", name, cpu)
 				mu.Lock()
 				issues = append(issues, fmt.Sprintf("🔥 %s usando %s CPU", name, stat.CPU))
 				mu.Unlock()
@@ -4334,39 +5109,107 @@ func handleDiagnose(chatID int64) {
 		}
 	}()
 
-	// Check 3: Dangling images
+	// Update: checking images
+	edit = tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, "🔍 *Ejecutando diagnóstico...*\n\n_Verificando imágenes sin usar..._")
+	edit.ParseMode = "Markdown"
+	bot.Send(edit)
+
+	// Check 4: Dangling images
+	log.Printf("[diagnose] Check 4: Looking for dangling images")
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		danglingImages, err := cli.ImageList(ctx, image.ListOptions{
 			Filters: filters.NewArgs(filters.Arg("dangling", "true")),
 		})
-		if err == nil && len(danglingImages) > 0 {
+		if err != nil {
+			log.Printf("[diagnose] ERROR listing dangling images: %v", err)
+			return
+		}
+		log.Printf("[diagnose] Found %d dangling images", len(danglingImages))
+		if len(danglingImages) > 0 {
 			mu.Lock()
 			issues = append(issues, fmt.Sprintf("🗑️ %d imágenes sin usar (ejecuta /prune)", len(danglingImages)))
 			mu.Unlock()
 		}
 	}()
 
+	log.Printf("[diagnose] Waiting for all checks to complete...")
 	wg.Wait()
+	log.Printf("[diagnose] All checks completed. Found %d issues", len(issues))
+	
+	// Delete progress message
+	bot.Send(tgbotapi.NewDeleteMessage(chatID, sentMsg.MessageID))
 
 	if len(issues) == 0 {
+		log.Printf("[diagnose] No issues found, sending success message")
 		sendMessageWithClose(chatID, "✅ *Todo está bien*\nNo se detectaron problemas en el sistema")
-	} else {
-		text := fmt.Sprintf("🔍 *Diagnóstico del sistema*\n_%d problema(s) detectado(s)_\n\n%s\n\n💡 Usa /list para gestionar contenedores o /prune para limpiar recursos.", len(issues), strings.Join(issues, "\n"))
-		msg := tgbotapi.NewMessage(chatID, text)
-		msg.ParseMode = "Markdown"
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
-				tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
-			),
-		)
-		bot.Send(msg)
+		return
 	}
+
+	log.Printf("[diagnose] Building report with %d stopped and %d unhealthy containers", len(stoppedContainers), len(unhealthyContainers))
+	text := fmt.Sprintf("🔍 *Diagnóstico del sistema*\n_%d problema(s) detectado(s)_\n\n%s", len(issues), strings.Join(issues, "\n"))
+	
+	var rows [][]tgbotapi.InlineKeyboardButton
+	
+	// Add buttons for stopped containers
+	if len(stoppedContainers) > 0 {
+		text += "\n\n*Contenedores detenidos:*\n"
+		for _, name := range stoppedContainers {
+			// Escape special markdown characters
+			escapedName := strings.ReplaceAll(name, "_", "\\_")
+			escapedName = strings.ReplaceAll(escapedName, "*", "\\*")
+			escapedName = strings.ReplaceAll(escapedName, "[", "\\[")
+			escapedName = strings.ReplaceAll(escapedName, "`", "\\`")
+			text += fmt.Sprintf("• `%s`\n", escapedName)
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("▶️ Iniciar: "+name, "start:"+name),
+			))
+		}
+	}
+	
+	// Add buttons for unhealthy containers
+	if len(unhealthyContainers) > 0 {
+		text += "\n*Contenedores no saludables:*\n"
+		for _, name := range unhealthyContainers {
+			// Escape special markdown characters
+			escapedName := strings.ReplaceAll(name, "_", "\\_")
+			escapedName = strings.ReplaceAll(escapedName, "*", "\\*")
+			escapedName = strings.ReplaceAll(escapedName, "[", "\\[")
+			escapedName = strings.ReplaceAll(escapedName, "`", "\\`")
+			text += fmt.Sprintf("• `%s`\n", escapedName)
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔄 Recrear: "+name, "diagnose_recreate:"+name),
+			))
+		}
+	}
+	
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("🗑️ Prune", "cmd:prune_menu"),
+		tgbotapi.NewInlineKeyboardButtonData("📋 Lista", "cmd:list"),
+	))
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cerrar", "close"),
+	))
+	
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	sent, err := bot.Send(msg)
+	if err != nil {
+		log.Printf("[diagnose] ERROR sending final report: %v", err)
+	} else {
+		log.Printf("[diagnose] Final report sent successfully, ID: %d", sent.MessageID)
+	}
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 func handleUptime(chatID int64) {
@@ -4513,6 +5356,14 @@ func main() {
 
 	// Load configuration from file
 	loadConfig()
+
+	// Check for incomplete transactions and offer recovery
+	if notifyChatID != 0 {
+		go func() {
+			time.Sleep(2 * time.Second) // Wait for bot to be fully initialized
+			checkAndRecoverTransaction()
+		}()
+	}
 
 	// Load configuration from environment variables
 	if intervalStr := os.Getenv("CHECK_UPDATES_INTERVAL"); intervalStr != "" {
