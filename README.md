@@ -27,15 +27,15 @@
 
 **Telegram bot + Mini App** to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, remote image tracking, Helm chart monitoring, and a **visual dashboard** with dark theme.
 
-🎨 **v2.4:** [Telegram Mini App](https://t.me/botainerbot) - Visual dashboard with real-time container management, compact UI, collaboration features and improved reliability!
+🎨 [Telegram Mini App](https://t.me/botainerbot) - Visual dashboard with real-time container management, compact UI, collaboration features and improved reliability!
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
-## ✨ Mini App Features (v2.4)
+## ✨ Mini App Features
 
 The **Telegram Mini App** provides a visual web interface that opens directly inside Telegram.
 
-### Current Features (v2.4)
+### Current Features
 
 ✅ **Monitoring & Analytics**
 - Real-time dashboard with auto-refresh every 5 seconds
@@ -467,11 +467,11 @@ Commands are registered automatically on startup. If they don't appear, restart 
 
 ---
 
-## 11. Mini App (v2.4 - Released!)
+## 11. Mini App
 
 The **Telegram Mini App** provides a visual web interface that opens directly inside Telegram.
 
-### Current Features (v2.4)
+### Current Features
 
 ✅ **Monitoring & Analytics**
 - Real-time dashboard with auto-refresh every 5 seconds
@@ -593,24 +593,24 @@ The **Telegram Mini App** provides a visual web interface that opens directly in
 
 ### Roadmap: Next Features
 
-**Phase 2.1: Advanced Monitoring** (v2.1) - ✅ 100% Complete
+**Phase 2.1: Advanced Monitoring** - ✅ 100% Complete
 - ✅ Historical resource usage charts (1h, 24h, 7d)
 - ✅ Export metrics as CSV/JSON
 - ✅ Configurable alerts (CPU/RAM thresholds)
 - ✅ Telegram notifications for alerts
 
-**Phase 2.2: Advanced Management** (v2.2) - ✅ 100% Complete
+**Phase 2.2: Advanced Management** - ✅ 100% Complete
 - ✅ Bulk operations (start/stop/restart/delete multiple containers)
 - ✅ Docker Compose project management
 - ✅ Visual container creation form
 - ✅ Network visualizer
 
-**Phase 2.3: Collaboration** (v2.3) - ✅ 100% Complete
+**Phase 2.3: Collaboration** - ✅ 100% Complete
 - ✅ Multi-user access control
 - ✅ Audit log viewer
 - ✅ Template library
 
-**Phase 2.4: Reliability & Code Quality** (v2.4) - ✅ 100% Complete
+**Phase 2.4: Reliability & Code Quality** - ✅ 100% Complete
 - ✅ Fixed `/logs` garbled output (`stdcopy.StdCopy`)
 - ✅ Fixed webapp logs (TTY detection + UTF-8 sanitization)
 - ✅ New compact notification format with Compose project context
