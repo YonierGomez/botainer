@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -186,6 +187,18 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	if logContent == "" {
 		logContent = "No logs available"
 	}
+
+	// Sanitize: replace invalid UTF-8 sequences and non-printable control characters
+	// (except newline/tab) to avoid corrupting the JSON response
+	logContent = strings.Map(func(r rune) rune {
+		if r == utf8.RuneError {
+			return '?'
+		}
+		if r < 0x20 && r != '\n' && r != '\t' && r != '\r' {
+			return -1 // drop the character
+		}
+		return r
+	}, strings.ToValidUTF8(logContent, "?"))
 
 	s.sendJSON(w, http.StatusOK, logContent)
 }
