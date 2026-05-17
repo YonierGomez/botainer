@@ -1,12 +1,19 @@
-import { useEffect, useState } from 'react'
-import HistoricalCharts from './components/HistoricalCharts'
-import ExportMetrics from './components/ExportMetrics'
-import AlertsManager from './components/AlertsManager'
-import ComposeManager from './components/ComposeManager'
-import ContainerCreator from './components/ContainerCreator'
-import NetworkVisualizer from './components/NetworkVisualizer'
-import UserManager from './components/UserManager'
-import TemplateLibrary from './components/TemplateLibrary'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+
+const HistoricalCharts = lazy(() => import('./components/HistoricalCharts'))
+const ExportMetrics = lazy(() => import('./components/ExportMetrics'))
+const AlertsManager = lazy(() => import('./components/AlertsManager'))
+const ComposeManager = lazy(() => import('./components/ComposeManager'))
+const ContainerCreator = lazy(() => import('./components/ContainerCreator'))
+const NetworkVisualizer = lazy(() => import('./components/NetworkVisualizer'))
+const UserManager = lazy(() => import('./components/UserManager'))
+const TemplateLibrary = lazy(() => import('./components/TemplateLibrary'))
+
+const ModalFallback = () => (
+  <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+    <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent" />
+  </div>
+)
 
 // Version: 2.1.1 - Added Export Metrics
 
@@ -71,42 +78,15 @@ function App() {
   const [stats, setStats] = useState<any>(null)
   const [loadingStats, setLoadingStats] = useState(false)
 
-  useEffect(() => {
-    // Wait for Telegram WebApp SDK to load
-    const checkTelegram = () => {
-      if (!window.Telegram?.WebApp) {
-        setTimeout(checkTelegram, 100)
-        return
-      }
-
-      // Check if running in Telegram
-      if (!window.Telegram.WebApp.initData) {
-        setLoading(false)
-        setError('⚠️ Please open this app from Telegram bot\n\nGo to @botainerbot → /start → 🐳 Dashboard')
-        return
-      }
-
-      window.Telegram.WebApp.ready()
-      window.Telegram.WebApp.expand()
-      fetchContainers()
-
-      // Auto-refresh every 5 seconds (silent)
-      const interval = setInterval(() => fetchContainers(true), 5000)
-      return () => clearInterval(interval)
-    }
-
-    checkTelegram()
-  }, [])
-
-  const getAuthHeaders = () => {
+  const getAuthHeaders = useCallback(() => {
     const initData = window.Telegram?.WebApp?.initData || ''
     return {
       'Content-Type': 'application/json',
       'X-Telegram-Init-Data': initData
     }
-  }
+  }, [])
 
-  const fetchContainers = async (silent = false) => {
+  const fetchContainers = useCallback(async (silent = false) => {
     try {
       if (!silent) {
         setLoading(true)
@@ -151,7 +131,41 @@ function App() {
         setLoading(false)
       }
     }
-  }
+  }, [getAuthHeaders, isInitialLoad])
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined
+    let telegramCheckTimeout: ReturnType<typeof setTimeout> | undefined
+
+    // Wait for Telegram WebApp SDK to load
+    const checkTelegram = () => {
+      if (!window.Telegram?.WebApp) {
+        telegramCheckTimeout = setTimeout(checkTelegram, 100)
+        return
+      }
+
+      // Check if running in Telegram
+      if (!window.Telegram.WebApp.initData) {
+        setLoading(false)
+        setError('⚠️ Please open this app from Telegram bot\n\nGo to @botainerbot → /start → 🐳 Dashboard')
+        return
+      }
+
+      window.Telegram.WebApp.ready()
+      window.Telegram.WebApp.expand()
+      fetchContainers()
+
+      // Auto-refresh every 10 seconds (silent)
+      interval = setInterval(() => fetchContainers(true), 10000)
+    }
+
+    checkTelegram()
+
+    return () => {
+      if (interval) clearInterval(interval)
+      if (telegramCheckTimeout) clearTimeout(telegramCheckTimeout)
+    }
+  }, [fetchContainers])
 
   const handleAction = async (id: string, action: 'start' | 'stop' | 'restart' | 'delete') => {
     try {
@@ -245,7 +259,7 @@ function App() {
     setInspectData(null)
     
     try {
-      const response = await fetch(`/api/containers/${container.Id}/inspect`, {
+      const response = await fetch(`/api/containers/${container.Id}`, {
         headers: getAuthHeaders()
       })
       const result = await response.json()
@@ -290,7 +304,7 @@ function App() {
     }
   }
 
-  const colorizeLog = (line: string) => {
+  const colorizeLog = useCallback((line: string) => {
     const lower = line.toLowerCase()
     
     // Error patterns
@@ -313,7 +327,7 @@ function App() {
     }
     
     return 'text-gray-300'
-  }
+  }, [])
 
   const fetchStats = async (container: Container) => {
     setSelectedContainerStats(container)
@@ -360,23 +374,18 @@ function App() {
     }
   }
 
-  const runningCount = containers.filter(c => c.State === 'running').length
-  const stoppedCount = containers.filter(c => c.State === 'exited').length
+  const runningCount = useMemo(() => containers.filter(c => c.State === 'running').length, [containers])
+  const stoppedCount = useMemo(() => containers.filter(c => c.State === 'exited').length, [containers])
 
-  // Filter and search logic
-  const filteredContainers = containers.filter(container => {
-    // Search filter
+  const filteredContainers = useMemo(() => containers.filter(container => {
     const matchesSearch = searchQuery === '' || 
       container.Names[0]?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       container.Image.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    // State filter
     const matchesState = filterState === 'all' ||
       (filterState === 'running' && container.State === 'running') ||
       (filterState === 'stopped' && container.State === 'exited')
-    
     return matchesSearch && matchesState
-  })
+  }), [containers, searchQuery, filterState])
 
   if (loading) {
     return (
@@ -982,70 +991,86 @@ function App() {
 
       {/* Historical Charts Modal */}
       {selectedContainerCharts && (
-        <HistoricalCharts
-          containerId={selectedContainerCharts.Id.substring(0, 12)}
-          containerName={selectedContainerCharts.Names[0]?.replace('/', '')}
-          onClose={() => setSelectedContainerCharts(null)}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <HistoricalCharts
+            containerId={selectedContainerCharts.Id.substring(0, 12)}
+            containerName={selectedContainerCharts.Names[0]?.replace('/', '')}
+            onClose={() => setSelectedContainerCharts(null)}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
 
       {/* Export Metrics Modal */}
       {showExportMetrics && (
-        <ExportMetrics
-          onClose={() => setShowExportMetrics(false)}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <ExportMetrics
+            onClose={() => setShowExportMetrics(false)}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
 
       {/* Alerts Manager Modal */}
       {showAlerts && (
-        <AlertsManager
-          containers={containers}
-          onClose={() => setShowAlerts(false)}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <AlertsManager
+            containers={containers}
+            onClose={() => setShowAlerts(false)}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
 
       {/* Compose Manager Modal */}
       {showCompose && (
-        <ComposeManager
-          onClose={() => setShowCompose(false)}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <ComposeManager
+            onClose={() => setShowCompose(false)}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
 
       {/* Container Creator Modal */}
       {showCreator && (
-        <ContainerCreator
-          onClose={() => setShowCreator(false)}
-          onSuccess={() => fetchContainers()}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <ContainerCreator
+            onClose={() => setShowCreator(false)}
+            onSuccess={() => fetchContainers()}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
 
       {/* Network Visualizer Modal */}
       {showNetworks && (
-        <NetworkVisualizer
-          onClose={() => setShowNetworks(false)}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <NetworkVisualizer
+            onClose={() => setShowNetworks(false)}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
 
       {/* User Manager Modal */}
       {showUsers && (
-        <UserManager
-          onClose={() => setShowUsers(false)}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <UserManager
+            onClose={() => setShowUsers(false)}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
 
       {/* Template Library Modal */}
       {showTemplates && (
-        <TemplateLibrary
-          onClose={() => setShowTemplates(false)}
-          getAuthHeaders={getAuthHeaders}
-        />
+        <Suspense fallback={<ModalFallback />}>
+          <TemplateLibrary
+            onClose={() => setShowTemplates(false)}
+            getAuthHeaders={getAuthHeaders}
+          />
+        </Suspense>
       )}
     </div>
   )
