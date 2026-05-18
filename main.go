@@ -2770,7 +2770,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	case "track_check":
 		go func() {
 			bot.Request(tgbotapi.NewCallback(query.ID, "🔍 Verificando..."))
-			checkTrackedImages(chatID)
+			checkTrackedImages(chatID, true)
 		}()
 		return
 
@@ -2820,7 +2820,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 	case "chart_check":
 		go func() {
 			bot.Request(tgbotapi.NewCallback(query.ID, "🔍 Verificando..."))
-			checkTrackedCharts(chatID)
+			checkTrackedCharts(chatID, true)
 		}()
 		return
 
@@ -3549,10 +3549,10 @@ func checkUpdates() {
 		if enableAutoCheck && notifyChatID != 0 {
 			runImageUpdateCheck()
 			if len(trackedImages) > 0 {
-				checkTrackedImages(notifyChatID)
+				checkTrackedImages(notifyChatID, false)
 			}
 			if len(trackedCharts) > 0 {
-				checkTrackedCharts(notifyChatID)
+				checkTrackedCharts(notifyChatID, false)
 			}
 		}
 		time.Sleep(checkUpdatesInterval)
@@ -4161,9 +4161,11 @@ func addTrackedImage(chatID int64, imageTag string) {
 	go handleTrackImage(chatID)
 }
 
-func checkTrackedImages(chatID int64) {
+func checkTrackedImages(chatID int64, manual bool) {
 	if len(trackedImages) == 0 {
-		sendMessageWithClose(chatID, "📋 No hay imágenes trackeadas")
+		if manual {
+			sendMessageWithClose(chatID, "📋 No hay imágenes trackeadas")
+		}
 		return
 	}
 
@@ -4215,7 +4217,7 @@ func checkTrackedImages(chatID int64) {
 		bot.Send(m)
 	}
 
-	if found == 0 {
+	if found == 0 && manual {
 		sendMessageWithClose(chatID, "✅ Todas las imágenes trackeadas están actualizadas")
 	}
 }
@@ -4338,7 +4340,7 @@ func fetchArtifactHubPackage(chartName string) (*ArtifactHubPackage, error) {
 	return &pkg, nil
 }
 
-func checkTrackedCharts(chatID int64) {
+func checkTrackedCharts(chatID int64, manual bool) {
 	if len(trackedCharts) == 0 {
 		return
 	}
@@ -4387,7 +4389,7 @@ func checkTrackedCharts(chatID int64) {
 		bot.Send(m)
 	}
 
-	if found == 0 && chatID != 0 {
+	if found == 0 && manual {
 		sendMessageWithClose(chatID, "✅ Todos los charts trackeados están actualizados")
 	}
 }
