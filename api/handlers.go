@@ -405,7 +405,10 @@ func (s *Server) handleCreateContainer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListComposeProjects(w http.ResponseWriter, r *http.Request) {
 	workspace := r.URL.Query().Get("workspace")
 	if workspace == "" {
-		workspace = "/workspace"
+		workspace = os.Getenv("WORKSPACE")
+		if workspace == "" {
+			workspace = "/workspace"
+		}
 	}
 
 	projects := make([]map[string]interface{}, 0)
