@@ -409,7 +409,7 @@ func restoreComposeFile(composeFile, backupPath string) error {
 
 // Validate compose file syntax
 func validateComposeFile(composeFile string) error {
-	output, err := runCmdWithTimeout(10*time.Second, "docker", "compose", "-f", composeFile, "config", "--quiet")
+	output, err := runComposeCmd(10*time.Second, composeFile, "config", "--quiet")
 	if err != nil {
 		return fmt.Errorf("invalid compose file: %s", output)
 	}
@@ -807,10 +807,17 @@ func runCmd(cmd string, args ...string) (string, error) {
 }
 
 func runCmdWithTimeout(timeout time.Duration, cmd string, args ...string) (string, error) {
+	return runCmdInDirWithTimeout("", timeout, cmd, args...)
+}
+
+func runCmdInDirWithTimeout(dir string, timeout time.Duration, cmd string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	command := exec.CommandContext(ctx, cmd, args...)
+	if dir != "" {
+		command.Dir = dir
+	}
 	out, err := command.CombinedOutput()
 
 	if ctx.Err() == context.DeadlineExceeded {
@@ -818,6 +825,14 @@ func runCmdWithTimeout(timeout time.Duration, cmd string, args ...string) (strin
 	}
 
 	return string(out), err
+}
+
+// runComposeCmd runs a docker compose command with the working directory set to
+// the directory containing composeFile. This ensures $PWD-based volume paths resolve correctly.
+func runComposeCmd(timeout time.Duration, composeFile string, args ...string) (string, error) {
+	dir := filepath.Dir(composeFile)
+	cmdArgs := append([]string{"compose", "-f", composeFile}, args...)
+	return runCmdInDirWithTimeout(dir, timeout, "docker", cmdArgs...)
 }
 
 func findComposeFile(workDir string) string {
@@ -1653,10 +1668,14 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				// Perform update with retry
 				updateErr := retryWithBackoff(func() error {
 					if project != "" {
-						// Compose update - use service name (not container name)
-						// Use --no-deps to prevent recreating related services
-						log.Printf("[updateall] Running: docker compose -f %s up -d --pull always --no-deps %s", composeFile, serviceName)
-						output, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", serviceName)
+						// Compose update - pull first, then recreate (mirrors: docker compose pull && docker compose up -d)
+						log.Printf("[updateall] Running: docker compose -f %s pull %s", composeFile, serviceName)
+						pullOut, pullErr := runComposeCmd(5*time.Minute, composeFile, "pull", serviceName)
+						if pullErr != nil {
+							return fmt.Errorf("compose pull failed: %s", pullOut)
+						}
+						log.Printf("[updateall] Running: docker compose -f %s up -d --no-deps %s", composeFile, serviceName)
+						output, err := runComposeCmd(3*time.Minute, composeFile, "up", "-d", "--no-deps", serviceName)
 						if err != nil {
 							return fmt.Errorf("compose up failed: %s", output)
 						}
@@ -1679,7 +1698,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 						if err := restoreComposeFile(composeFile, backupPath); err != nil {
 							log.Printf("[updateall] Rollback failed: %v", err)
 						} else {
-							runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", serviceName)
+							runComposeCmd(2*time.Minute, composeFile, "up", "-d", serviceName)
 							rollbacks = append(rollbacks, containerName)
 						}
 					}
@@ -1698,7 +1717,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 						if err := restoreComposeFile(composeFile, backupPath); err != nil {
 							log.Printf("[updateall] Rollback failed: %v", err)
 						} else {
-							runCmdWithTimeout(2*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", serviceName)
+							runComposeCmd(2*time.Minute, composeFile, "up", "-d", serviceName)
 							rollbacks = append(rollbacks, containerName)
 						}
 					}
@@ -1844,22 +1863,31 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					if sedErr != nil {
 						out = fmt.Sprintf("❌ Error al editar compose: %v\n%s", sedErr, sedOut)
 					} else {
-						// Run docker compose up -d --pull always --no-deps for the service
-						upOut, upErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
-						if upErr != nil {
-							log.Printf("Compose up error: %v\nOutput: %s", upErr, upOut)
-							out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
+						// Pull the new image first, then recreate (mirrors: docker compose pull && docker compose up -d)
+						pullOut, pullErr := runComposeCmd(5*time.Minute, composeFile, "pull", service)
+						if pullErr != nil {
+							log.Printf("Compose pull error: %v\nOutput: %s", pullErr, pullOut)
+							out = fmt.Sprintf("❌ Error al descargar imagen:\n```\n%s\n```", pullOut)
 							if len(out) > 3800 {
 								out = out[:3800] + "\n...\n```"
 							}
 						} else {
-							// Wait and verify status using container name (Docker API)
-							time.Sleep(3 * time.Second)
-							inspect, err := cli.ContainerInspect(ctx, containerName)
-							if err == nil && inspect.State.Running {
-								out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n🟢 Estado: Corriendo", containerName, newTag)
+							upOut, upErr := runComposeCmd(3*time.Minute, composeFile, "up", "-d", "--no-deps", service)
+							if upErr != nil {
+								log.Printf("Compose up error: %v\nOutput: %s", upErr, upOut)
+								out = fmt.Sprintf("❌ Error al actualizar:\n```\n%s\n```", upOut)
+								if len(out) > 3800 {
+									out = out[:3800] + "\n...\n```"
+								}
 							} else {
-								out = fmt.Sprintf("⚠️ *%s* actualizado a `%s`\n\n🔴 Estado: Detenido (requiere atención)", containerName, newTag)
+								// Wait and verify status using container name (Docker API)
+								time.Sleep(3 * time.Second)
+								inspect, err := cli.ContainerInspect(ctx, containerName)
+								if err == nil && inspect.State.Running {
+									out = fmt.Sprintf("✅ *%s* actualizado a `%s`\n\n🟢 Estado: Corriendo", containerName, newTag)
+								} else {
+									out = fmt.Sprintf("⚠️ *%s* actualizado a `%s`\n\n🔴 Estado: Detenido (requiere atención)", containerName, newTag)
+								}
 							}
 						}
 					}
@@ -2504,7 +2532,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		log.Printf("Updating service %s (container: %s) in project %s with file: %s", service, containerName, project, composeFile)
 
 		// Up -d with pull always and no-deps (timeout 5 minutos)
-		upOut, upErr := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
+		upOut, upErr := runComposeCmd(5*time.Minute, composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
 		if upErr != nil {
 			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
 
@@ -2515,7 +2543,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			if isLocalImageError {
 				log.Printf("Local image detected for %s, retrying without pull", service)
 				// Retry without --pull for local images
-				upOut, upErr = runCmdWithTimeout(3*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", service)
+				upOut, upErr = runComposeCmd(3*time.Minute, composeFile, "up", "-d", service)
 			}
 
 			if upErr != nil {
@@ -3722,7 +3750,7 @@ func runImageUpdateCheck() int {
 					if resolveErr != nil {
 						recErr = resolveErr
 					} else {
-						out, err := runCmdWithTimeout(5*time.Minute, "docker", "compose", "-f", composeFile, "up", "-d", "--pull", "always", "--no-deps", c.service)
+						out, err := runComposeCmd(5*time.Minute, composeFile, "up", "-d", "--pull", "always", "--no-deps", c.service)
 						if err != nil {
 							recErr = fmt.Errorf("compose up failed: %s", out)
 						}
