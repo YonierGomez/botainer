@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.4.1"                      // v2.4.1: panic fix, resolveComposeFile helper, cleanup
+	botVersion     = "2.4.2"                      // v2.4.2: fix compose update recreate, runComposeCmd with correct workdir
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
