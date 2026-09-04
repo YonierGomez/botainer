@@ -4,11 +4,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
+
+// maxInitDataAge is the maximum age allowed for Telegram WebApp initData
+// before it is considered expired and rejected.
+const maxInitDataAge = 24 * time.Hour
 
 type Server struct {
 	router        *mux.Router
@@ -106,15 +112,23 @@ func (s *Server) routes() {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// Reflect the request Origin instead of using a wildcard, since this
+		// API now carries session-like auth (X-Telegram-Init-Data) and full
+		// Docker control. A wildcard would allow any website to read
+		// responses if it ever obtained a valid initData token.
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Telegram-Init-Data")
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -183,7 +197,80 @@ func (s *Server) validateTelegramAuth(initData string) bool {
 	h.Write([]byte(dataCheckString))
 	computedHash := hex.EncodeToString(h.Sum(nil))
 
-	return computedHash == hash
+	if computedHash != hash {
+		return false
+	}
+
+	// Reject expired initData. Telegram documents that initData should be
+	// treated as valid for a limited time window after auth_date.
+	authDateStr := values.Get("auth_date")
+	if authDateStr == "" {
+		return false
+	}
+	authDateUnix, err := strconv.ParseInt(authDateStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	authDate := time.Unix(authDateUnix, 0)
+	if time.Since(authDate) > maxInitDataAge {
+		log.Printf("Rejected initData: auth_date expired (%s)", authDate)
+		return false
+	}
+	if time.Until(authDate) > 5*time.Minute {
+		// auth_date is in the future beyond reasonable clock skew — reject.
+		log.Printf("Rejected initData: auth_date in the future (%s)", authDate)
+		return false
+	}
+
+	// Enforce ALLOWED_USERS whitelist, matching the same env var used by the
+	// Telegram bot (main.go). If unset, access is allowed for any verified
+	// Telegram user (kept consistent with existing bot behavior).
+	if !s.isUserAllowed(values.Get("user")) {
+		return false
+	}
+
+	return true
+}
+
+// telegramWebAppUser mirrors the subset of fields Telegram sends in the
+// "user" JSON parameter of initData that we need for authorization checks.
+type telegramWebAppUser struct {
+	ID int64 `json:"id"`
+}
+
+// isUserAllowed checks the given user JSON blob (from initData's "user"
+// param) against the ALLOWED_USERS environment variable. If ALLOWED_USERS is
+// empty, all verified Telegram users are allowed.
+func (s *Server) isUserAllowed(userJSON string) bool {
+	allowedUsersStr := os.Getenv("ALLOWED_USERS")
+	if allowedUsersStr == "" {
+		return true
+	}
+
+	if userJSON == "" {
+		return false
+	}
+
+	var user telegramWebAppUser
+	if err := json.Unmarshal([]byte(userJSON), &user); err != nil {
+		return false
+	}
+
+	for _, idStr := range strings.Split(allowedUsersStr, ",") {
+		idStr = strings.TrimSpace(idStr)
+		if idStr == "" {
+			continue
+		}
+		allowedID, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			continue
+		}
+		if allowedID == user.ID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Server) Start(port string) error {

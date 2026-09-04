@@ -73,25 +73,29 @@ fetch('/api/containers', {
 
 The Mini App can only be accessed:
 1. From the Telegram bot menu button
-2. With valid Telegram WebApp initData
-3. By users who have interacted with the bot
+2. With valid, non-expired Telegram WebApp initData (rejected if `auth_date` is older than 24h)
+3. By users who have interacted with the bot **and** are present in `ALLOWED_USERS` (if set)
 
-### Additional Security (Optional)
+### User Whitelist & Expiration (enforced since v2.4.3)
 
-You can add extra validation in `api/server.go`:
+`api/server.go` enforces both of the following in `validateTelegramAuth()`,
+in addition to the HMAC-SHA256 signature check:
 
 ```go
-// Check user ID against ALLOWED_USERS
-allowedUsers := os.Getenv("ALLOWED_USERS")
-if allowedUsers != "" {
-    userID := values.Get("user")
-    // Parse and validate user ID
-}
+// Reject expired initData (auth_date older than 24h, or set in the future)
+authDate := time.Unix(authDateUnix, 0)
+if time.Since(authDate) > maxInitDataAge { return false }
 
-// Check auth_date (timestamp)
-authDate := values.Get("auth_date")
-// Reject if older than 24h
+// Enforce ALLOWED_USERS whitelist against initData's user.id
+if !s.isUserAllowed(values.Get("user")) { return false }
 ```
+
+Prior to v2.4.3, `ALLOWED_USERS` was only enforced in the Telegram bot's
+command handlers (`main.go`), not in the Mini App REST API — meaning any
+user who had opened the bot could bypass the whitelist by calling the API
+directly with a validly signed `initData`. This is now fixed; the same
+`ALLOWED_USERS` env var is enforced consistently across both the bot and
+the API.
 
 ### Testing
 
