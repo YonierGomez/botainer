@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.4.3"                      // v2.4.3: security fix — Mini App API auth (auth_date + ALLOWED_USERS), CORS hardening
+	botVersion     = "2.5.0"                      // v2.5.0: Mini App removed by default (breaking change) — see CHANGELOG_v2.5.0.md
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -5396,13 +5396,19 @@ func main() {
 	// Initialize template store
 	templateStore := api.NewTemplateStore("/data/templates.json")
 
-	// Start API server for Mini App
-	apiServer := api.NewServer(cli, metricsStore, alertStore, userStore, templateStore)
-	go func() {
-		if err := apiServer.Start("8080"); err != nil {
-			log.Printf("API server error: %v", err)
-		}
-	}()
+	// Start API server for Mini App — disabled by default (security incident,
+	// see CHANGELOG_v2.4.3.md). Set ENABLE_MINI_APP=true to opt back in.
+	if os.Getenv("ENABLE_MINI_APP") == "true" {
+		apiServer := api.NewServer(cli, metricsStore, alertStore, userStore, templateStore)
+		go func() {
+			if err := apiServer.Start("8080"); err != nil {
+				log.Printf("API server error: %v", err)
+			}
+		}()
+		log.Printf("Mini App API server enabled on port 8080")
+	} else {
+		log.Printf("Mini App API server disabled (set ENABLE_MINI_APP=true to enable)")
+	}
 
 	// Validate Docker Compose availability
 	if err := validateComposeSetup(); err != nil {
