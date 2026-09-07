@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.6.0"                      // v2.6.0: full i18n — all user-facing strings now support es/en via getText()
+	botVersion     = "2.6.1"                      // v2.6.1: fix ~120 additional hardcoded Spanish strings missed in v2.6.0's i18n pass
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
