@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.4.2"                      // v2.4.2: fix compose update recreate, runComposeCmd with correct workdir
+	botVersion     = "2.4.3"                      // v2.4.3: security fix — Mini App API auth (auth_date + ALLOWED_USERS), CORS hardening
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
