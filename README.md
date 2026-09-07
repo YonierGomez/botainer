@@ -22,71 +22,12 @@
 ![Alpine Linux](https://img.shields.io/badge/Alpine_Linux-0D597F?logo=alpinelinux&logoColor=white)
 ![Telegram](https://img.shields.io/badge/Telegram-26A5E4?logo=telegram&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?logo=docker&logoColor=white)
-![React](https://img.shields.io/badge/React_19-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 
-**Telegram bot + Mini App** to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, remote image tracking, Helm chart monitoring, and a **visual dashboard** with dark theme.
-
-🎨 [Telegram Mini App](https://t.me/botainerbot) - Visual dashboard with real-time container management, compact UI, collaboration features and improved reliability!
+**Telegram bot** to manage Docker from your phone. 25+ commands, real-time notifications, automatic image update detection, remote image tracking, and Helm chart monitoring — all through simple Telegram commands, no web dashboard required.
 
 📢 **Stay updated:** Join our [Telegram News Channel](https://t.me/botainer_news) for updates and new features!
 
-## ✨ Mini App Features
-
-The **Telegram Mini App** provides a visual web interface that opens directly inside Telegram.
-
-### Current Features
-
-✅ **Monitoring & Analytics**
-- Real-time dashboard with auto-refresh every 5 seconds
-- Historical charts for CPU/RAM trends (1h, 24h, 7d)
-- Export metrics as CSV or JSON
-- Alerts system with CPU/RAM thresholds
-- Telegram notifications when thresholds exceeded
-- Alert history with timestamps
-- Colorized logs with automatic pattern detection
-
-✅ **Container Management**
-- **Compact UI**: Modern, space-efficient design for all devices
-- Quick actions: Stats, Charts, Logs, Inspect, Restart, Stop, Delete
-- Bulk operations: Multi-select containers for batch actions
-  - Select All / Deselect All functionality
-  - Batch start, stop, restart, delete
-  - Confirmation dialogs for destructive actions
-- Search and filters (all, running, stopped)
-- Live status indicators (🟢 running, 🔴 stopped)
-- Inline action buttons with wrap for better space usage
-
-✅ **Docker Compose & Networks**
-- Compose Manager for all your projects
-- Auto-detection of compose.yaml files in /workspace
-- Project-level actions: Up, Down, Restart, Pull
-- Network Visualizer with topology view
-- Visual feedback and loading states
-
-✅ **Collaboration & Templates**
-- **Multi-User Support**: Role-based access control
-  - Admin: Full access including user management
-  - Operator: Manage containers (no delete/users)
-  - Viewer: Read-only access (logs, stats)
-- **Audit Log**: Track all actions with timestamps
-- **Template Library**: Save and share container configurations
-  - Public/private templates
-  - One-click deployment
-  - Usage tracking
-  - Tag-based organization
-
-✅ **Interface**
-- **Compact Design**: 40% more information density
-- Hamburger menu with all options
-- Inline search + filter chips
-- Compact container cards (reduced padding and text sizes)
-- Dark theme optimized for all devices
-- Responsive design (phone, tablet, desktop)
-- Secure Telegram authentication
-- User whitelist via `ALLOWED_USERS`
-
-> **Note:** The Mini App is **completely optional**. The bot works perfectly without it using text commands only.
+> **v2.5.0 note:** the Telegram Mini App (visual web dashboard) has been removed by default following a security incident (see [CHANGELOG_v2.5.0.md](changelogs/CHANGELOG_v2.5.0.md)). Botainer is now a pure command-based Telegram bot.
 
 ---
 
@@ -394,6 +335,12 @@ ENABLE_STARTUP_NOTIFICATION=true
 # Bot language (default: es)
 # Options: es (Spanish), en (English)
 LANGUAGE=es
+
+# Enable the Mini App REST API (default: false — disabled after a security
+# incident, see CHANGELOG_v2.5.0.md). Only enable this if you understand the
+# risk of exposing a Docker-control API and have proper network restrictions
+# in place (e.g. reverse proxy allow-listing your LAN/VPN only).
+ENABLE_MINI_APP=false
 ```
 
 ### Volumes
@@ -464,188 +411,6 @@ newgrp docker
 **Commands not showing in Telegram**
 
 Commands are registered automatically on startup. If they don't appear, restart the bot, wait 1–2 minutes, then type `/` in the chat.
-
----
-
-## 11. Mini App
-
-The **Telegram Mini App** provides a visual web interface that opens directly inside Telegram.
-
-### Current Features
-
-✅ **Monitoring & Analytics**
-- Real-time dashboard with auto-refresh every 5 seconds
-- Historical charts for CPU/RAM trends (1h, 24h, 7d)
-- Export metrics as CSV or JSON
-- Alerts system with CPU/RAM thresholds
-- Telegram notifications when thresholds exceeded
-- Alert history with timestamps
-- Colorized logs with automatic pattern detection
-
-✅ **Container Management**
-- **Compact UI**: Modern, space-efficient design for all devices
-- Quick actions: Stats, Charts, Logs, Inspect, Restart, Stop, Delete
-- Bulk operations: Multi-select containers for batch actions
-  - Select All / Deselect All functionality
-  - Batch start, stop, restart, delete
-  - Confirmation dialogs for destructive actions
-- Search and filters (all, running, stopped)
-- Live status indicators (🟢 running, 🔴 stopped)
-- Inline action buttons with wrap for better space usage
-
-✅ **Docker Compose & Networks**
-- Compose Manager for all your projects
-- Auto-detection of compose.yaml files in /workspace
-- Project-level actions: Up, Down, Restart, Pull
-- Network Visualizer with topology view
-- Loading states and visual feedback
-- Confirmation before destructive operations
-
-✅ **Collaboration & Templates**
-- **Multi-User Support**: Role-based access control
-  - Admin: Full access including user management
-  - Operator: Manage containers (no delete/users)
-  - Viewer: Read-only access (logs, stats)
-- **Audit Log**: Track all actions with timestamps
-- **Template Library**: Save and share container configurations
-  - Public/private templates
-  - One-click deployment
-  - Usage tracking
-  - Tag-based organization
-
-✅ **Interface**
-- **Compact Design**: 40% more information density
-- Hamburger menu with all options
-- Inline search + filter chips
-- Compact container cards (reduced padding and text sizes)
-- Dark theme optimized for all devices
-- Responsive design (phone, tablet, desktop)
-- Secure Telegram authentication
-- User whitelist via `ALLOWED_USERS`
-
-### How to Use
-
-**Access the Dashboard:**
-1. Open your bot in Telegram
-2. Send `/start` or tap menu button (☰)
-3. Tap **🐳 Dashboard** button
-
-**Quick Actions on Containers:**
-- **📊 Stats**: Real-time CPU/RAM usage
-- **📈 Charts**: Historical metrics (1h, 24h, 7d)
-- **📋 Logs**: View container logs with color coding
-- **🔍 Inspect**: Full container details in JSON format
-- **🔄 Restart**: Restart container
-- **⏹️ Stop**: Stop running container
-- **▶️ Start**: Start stopped container
-- **🗑️ Delete**: Remove container (with confirmation)
-
-**Configure Alerts:**
-1. Tap **🚨** (bell icon) in header
-2. Select container and set CPU/RAM thresholds
-3. Enable alerts and save
-4. Receive Telegram notifications when exceeded
-
-**Bulk Operations:**
-1. Tap **📋** (clipboard) in header
-2. Select multiple containers with checkboxes
-3. Use action bar: Start, Restart, Stop, or Delete
-4. Automatically exits bulk mode after action
-
-**Manage Compose Projects:**
-1. Tap **🐳** (stack) in header
-2. See all detected Compose projects
-3. Execute actions: Up, Restart, Pull, Down
-4. Confirmation required for Down action
-
-**Create New Container:**
-1. Tap **+** (plus) in header
-2. Fill in container details (name, image, ports, etc.)
-3. Configure network and restart policy
-4. Tap Create & Start
-
-**View Network Topology:**
-1. Tap **🌐** (globe) in header
-2. See all Docker networks
-3. View connected containers per network
-4. Check IP addresses
-
-**Manage Users:**
-1. Tap **👥** (users) in header
-2. View all users and their roles
-3. Change user roles with dropdown
-4. View audit log of all actions
-
-**Use Template Library:**
-1. Tap **📦** (package) in header
-2. Browse available templates
-3. Deploy with one click (enter container name)
-4. Create new templates from configurations
-5. Share public templates with team
-
-**View Historical Charts:**
-1. Tap **📈 Charts** on any running container
-2. Select time range (1h, 24h, 7d)
-
-**Export Metrics:**
-1. Tap **📥** (download) in header
-2. Select time range and format (CSV/JSON)
-
-### Roadmap: Next Features
-
-**Phase 2.1: Advanced Monitoring** - ✅ 100% Complete
-- ✅ Historical resource usage charts (1h, 24h, 7d)
-- ✅ Export metrics as CSV/JSON
-- ✅ Configurable alerts (CPU/RAM thresholds)
-- ✅ Telegram notifications for alerts
-
-**Phase 2.2: Advanced Management** - ✅ 100% Complete
-- ✅ Bulk operations (start/stop/restart/delete multiple containers)
-- ✅ Docker Compose project management
-- ✅ Visual container creation form
-- ✅ Network visualizer
-
-**Phase 2.3: Collaboration** - ✅ 100% Complete
-- ✅ Multi-user access control
-- ✅ Audit log viewer
-- ✅ Template library
-
-**Phase 2.4: Reliability & Code Quality** - ✅ 100% Complete
-- ✅ Fixed `/logs` garbled output (`stdcopy.StdCopy`)
-- ✅ Fixed webapp logs (TTY detection + UTF-8 sanitization)
-- ✅ New compact notification format with Compose project context
-- ✅ Telegram Markdown send fallback
-- ✅ Panic fix: `Names[0]` in metrics API
-- ✅ `resolveComposeFile()` helper — eliminates repeated patterns in update flows
-
-### Technical Architecture
-
-```
-┌─────────────────────────────────────────┐
-│   Telegram Mini App (Frontend)         │
-│   - React 19 + TypeScript               │
-│   - Telegram WebApp SDK                 │
-│   - Auto-refresh every 5 seconds        │
-│   - Tailwind CSS dark theme             │
-└──────────────┬──────────────────────────┘
-               │ HTTPS
-               ▼
-┌─────────────────────────────────────────┐
-│   Botainer Backend (Go)                 │
-│   - REST API (Gorilla Mux)              │
-│   - Telegram auth validation            │
-│   - Docker API integration              │
-│   - Metrics collection (every 30s)      │
-│   - Alert monitoring                    │
-│   - User management & audit log         │
-│   - Template library                    │
-└──────────────┬──────────────────────────┘
-               │ Unix Socket
-               ▼
-┌─────────────────────────────────────────┐
-│   Docker Engine                         │
-└─────────────────────────────────────────┘
-```
 
 ---
 
