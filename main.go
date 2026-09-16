@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.6.1"                      // v2.6.1: fix ~120 additional hardcoded Spanish strings missed in v2.6.0's i18n pass
+	botVersion     = "2.7.0"                      // v2.7.0: pin ImagePull to the daemon's native platform to prevent pulling mismatched-architecture images
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -88,6 +88,15 @@ var (
 		"wireguard": "🔒", "pihole": "🛡️", "adguard": "🛡️", "traefik": "🔀",
 		"portainer": "🐳", "watchtower": "🗼", "grafana": "📊", "prometheus": "📈",
 	}
+
+	// daemonPullPlatform caches the host Docker daemon's platform (e.g. "linux/arm64"),
+	// detected once at startup via detectDaemonPlatform(). Every image.PullOptions used
+	// across the codebase must set Platform to this value so that ImagePull always
+	// requests the architecture matching the daemon, instead of letting an ambiguous
+	// empty Platform fall back to whatever the registry/daemon negotiation resolves to
+	// (which historically resulted in a bad/mismatched manifest being pulled and cached,
+	// causing "exec format error" on containers that were later recreated with it).
+	daemonPullPlatform string
 )
 
 // containerFirstName returns the first name of a container (without leading "/").
@@ -100,6 +109,62 @@ func containerFirstName(c types.Container) string {
 		return c.ID
 	}
 	return strings.TrimPrefix(c.Names[0], "/")
+}
+
+// detectDaemonPlatform queries the connected Docker daemon for its OS/architecture
+// and caches it in daemonPullPlatform as "os/arch" (e.g. "linux/arm64"), matching the
+// format expected by image.PullOptions.Platform. It must be called once right after
+// the Docker client is initialized in main().
+//
+// Why this matters: ImagePull with an empty Platform leaves the manifest selection to
+// the registry/daemon negotiation, which is not guaranteed to always resolve to the
+// daemon's native architecture (e.g. when qemu/binfmt emulation for other platforms is
+// registered on the host). Pinning Platform explicitly to the daemon's own arch ensures
+// every automatic or manual pull always fetches an image that can actually execute here.
+func detectDaemonPlatform() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	info, err := cli.Info(ctx)
+	if err != nil || info.Architecture == "" {
+		log.Printf("Warning: could not detect daemon platform, ImagePull will use default platform negotiation: %v", err)
+		daemonPullPlatform = ""
+		return
+	}
+
+	osType := info.OSType
+	if osType == "" {
+		osType = "linux"
+	}
+
+	daemonPullPlatform = osType + "/" + normalizeDockerArch(info.Architecture)
+	log.Printf("Detected Docker daemon platform: %s", daemonPullPlatform)
+}
+
+// normalizeDockerArch converts the architecture string reported by `docker info`
+// (which can be a kernel-style uname value like "aarch64"/"x86_64" on some daemon
+// versions/platforms) into the arch identifiers Docker registries/manifests expect.
+func normalizeDockerArch(arch string) string {
+	switch arch {
+	case "x86_64":
+		return "amd64"
+	case "aarch64":
+		return "arm64"
+	case "armv7l":
+		return "arm/v7"
+	case "armv6l":
+		return "arm/v6"
+	default:
+		return arch
+	}
+}
+
+// pullOpts returns the image.PullOptions to use for every ImagePull call in this
+// codebase. It always pins Platform to the local daemon's architecture (detected at
+// startup by detectDaemonPlatform) so automatic/manual image pulls can never fetch a
+// manifest for the wrong architecture. See detectDaemonPlatform for the full rationale.
+func pullOpts() image.PullOptions {
+	return image.PullOptions{Platform: daemonPullPlatform}
 }
 
 // ChartInfo stores Helm chart tracking information
@@ -532,7 +597,7 @@ func validatePreUpdate(containerName, project, composeFile, newImage string, ser
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		reader, err := cli.ImagePull(ctx, newImage, image.PullOptions{})
+		reader, err := cli.ImagePull(ctx, newImage, pullOpts())
 		if err != nil {
 			return fmt.Errorf("failed to pull new image '%s': %w", newImage, err)
 		}
@@ -1883,7 +1948,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					out = getText("error_inspecting_container", err.Error())
 				} else {
 					// Pull new image first using Docker API
-					pullResp, pullErr := cli.ImagePull(ctx, newTag, image.PullOptions{})
+					pullResp, pullErr := cli.ImagePull(ctx, newTag, pullOpts())
 					if pullErr != nil {
 						out = getText("error_downloading_image_short", pullErr.Error())
 					} else {
@@ -3610,7 +3675,7 @@ func runImageUpdateCheck() int {
 			inspect, _ := cli.ContainerInspect(ctx, ctrs[0].name)
 			localID := inspect.Image
 
-			reader, err := cli.ImagePull(ctx, imgTag, image.PullOptions{})
+			reader, err := cli.ImagePull(ctx, imgTag, pullOpts())
 			if err == nil {
 				io.Copy(io.Discard, reader)
 				reader.Close()
@@ -3892,7 +3957,7 @@ func handleUpdateAll(chatID int64) {
 			inspect, _ := cli.ContainerInspect(ctx, containers[0].Name)
 			localID := inspect.Image
 
-			reader, err := cli.ImagePull(ctx, imgTag, image.PullOptions{})
+			reader, err := cli.ImagePull(ctx, imgTag, pullOpts())
 			if err == nil {
 				io.Copy(io.Discard, reader)
 				reader.Close()
@@ -4132,7 +4197,7 @@ func addTrackedImage(chatID int64, imageTag string) {
 	ctx := context.Background()
 	loadingID := sendLoading(chatID, getText("checking_image", imageTag))
 
-	reader, err := cli.ImagePull(ctx, imageTag, image.PullOptions{})
+	reader, err := cli.ImagePull(ctx, imageTag, pullOpts())
 	if err != nil {
 		deleteMsg(chatID, loadingID)
 		sendMessageWithClose(chatID, getText("error_checking_image", err.Error()))
@@ -4168,7 +4233,7 @@ func checkTrackedImages(chatID int64, manual bool) {
 	found := 0
 
 	for imageTag, oldID := range trackedImages {
-		reader, err := cli.ImagePull(ctx, imageTag, image.PullOptions{})
+		reader, err := cli.ImagePull(ctx, imageTag, pullOpts())
 		if err != nil {
 			continue
 		}
@@ -4500,7 +4565,7 @@ func recreateContainer(name string) error {
 	}
 
 	imageTag := inspect.Config.Image
-	reader, err := cli.ImagePull(ctx, imageTag, image.PullOptions{})
+	reader, err := cli.ImagePull(ctx, imageTag, pullOpts())
 	if err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
@@ -5310,6 +5375,11 @@ func main() {
 	}
 	defer cli.Close()
 
+	// Detect the daemon's native platform so every ImagePull (automatic checks,
+	// manual updates, rollbacks, templates, etc.) always requests a matching
+	// architecture instead of relying on ambiguous default negotiation.
+	detectDaemonPlatform()
+
 	// Initialize metrics store (keep last 10080 points = 7 days at 1 minute intervals)
 	metricsStore := api.NewMetricsStore("/data/metrics.json", 10080)
 
@@ -5786,7 +5856,7 @@ func doRollback(containerName string, entry RollbackEntry) error {
 	}
 
 	// Pull the old image
-	reader, err := cli.ImagePull(ctx, entry.Image, image.PullOptions{})
+	reader, err := cli.ImagePull(ctx, entry.Image, pullOpts())
 	if err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
@@ -5923,7 +5993,7 @@ func deployTemplate(tpl ContainerTemplate) error {
 	ctx := context.Background()
 
 	// Pull image
-	reader, err := cli.ImagePull(ctx, tpl.Image, image.PullOptions{})
+	reader, err := cli.ImagePull(ctx, tpl.Image, pullOpts())
 	if err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
