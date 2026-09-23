@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.7.0"                      // v2.7.0: pin ImagePull to the daemon's native platform to prevent pulling mismatched-architecture images
+	botVersion     = "2.8.0"                      // v2.8.0: notify about tracked/running image updates without auto-pulling when ENABLE_AUTO_CHECK=false
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -165,6 +165,43 @@ func normalizeDockerArch(arch string) string {
 // manifest for the wrong architecture. See detectDaemonPlatform for the full rationale.
 func pullOpts() image.PullOptions {
 	return image.PullOptions{Platform: daemonPullPlatform}
+}
+
+// getRemoteImageDigest asks the registry (via the daemon's distribution
+// inspect endpoint) for the manifest digest of imageTag WITHOUT pulling any
+// image layers. Used when ENABLE_AUTO_CHECK=false so Botainer can still
+// notify about new versions without downloading anything automatically.
+func getRemoteImageDigest(ctx context.Context, imageTag string) (string, error) {
+	dist, err := cli.DistributionInspect(ctx, imageTag, "")
+	if err != nil {
+		return "", err
+	}
+	digest := dist.Descriptor.Digest.String()
+	if digest == "" {
+		return "", fmt.Errorf("empty digest for %s", imageTag)
+	}
+	return digest, nil
+}
+
+// getLocalImageDigest returns the digest the local daemon already recorded
+// for imageTag the last time it was actually pulled (from RepoDigests),
+// without pulling anything now. Returns "" if unknown (e.g. never pulled by
+// tag, or a locally built image with no registry digest on record).
+func getLocalImageDigest(ctx context.Context, imageTag string) string {
+	imgInspect, _, err := cli.ImageInspectWithRaw(ctx, imageTag)
+	if err != nil {
+		return ""
+	}
+	repo := imageTag
+	if idx := strings.LastIndex(imageTag, ":"); idx != -1 {
+		repo = imageTag[:idx]
+	}
+	for _, rd := range imgInspect.RepoDigests {
+		if at := strings.LastIndex(rd, "@"); at != -1 && rd[:at] == repo {
+			return rd[at+1:]
+		}
+	}
+	return ""
 }
 
 // ChartInfo stores Helm chart tracking information
@@ -3621,7 +3658,14 @@ func scheduledReports() {
 func checkUpdates() {
 	time.Sleep(5 * time.Minute)
 	for {
-		if enableAutoCheck && notifyChatID != 0 {
+		// The periodic scan always runs so tracked images/charts and running
+		// containers keep getting checked for new versions. ENABLE_AUTO_CHECK
+		// only controls whether the scan is allowed to pull image layers:
+		// when true, runImageUpdateCheck/checkTrackedImages pull and (for
+		// containers with auto-update enabled) recreate automatically; when
+		// false, they fall back to a lightweight registry digest check (no
+		// pull) and just notify.
+		if notifyChatID != 0 {
 			runImageUpdateCheck()
 			if len(trackedImages) > 0 {
 				checkTrackedImages(notifyChatID, false)
@@ -3675,14 +3719,32 @@ func runImageUpdateCheck() int {
 			inspect, _ := cli.ContainerInspect(ctx, ctrs[0].name)
 			localID := inspect.Image
 
-			reader, err := cli.ImagePull(ctx, imgTag, pullOpts())
-			if err == nil {
-				io.Copy(io.Discard, reader)
-				reader.Close()
-			}
+			var newID string
+			var imgSize int64
+			lightweight := !enableAutoCheck
 
-			imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imgTag)
-			newID := imgInspect.ID
+			if lightweight {
+				// ENABLE_AUTO_CHECK=false: never pull automatically. Compare the
+				// digest the daemon already has on record (from the last real
+				// pull) against the registry's current digest, fetched without
+				// downloading any image layers.
+				localDigest := getLocalImageDigest(ctx, imgTag)
+				remoteDigest, rerr := getRemoteImageDigest(ctx, imgTag)
+				if localDigest == "" || rerr != nil {
+					return // can't compare without pulling; fail closed, no false alerts
+				}
+				localID = localDigest
+				newID = remoteDigest
+			} else {
+				reader, err := cli.ImagePull(ctx, imgTag, pullOpts())
+				if err == nil {
+					io.Copy(io.Discard, reader)
+					reader.Close()
+				}
+				imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imgTag)
+				newID = imgInspect.ID
+				imgSize = imgInspect.Size
+			}
 
 			// Check for digest-based update (existing logic)
 			if localID == "" || newID == "" || localID == newID {
@@ -3760,11 +3822,16 @@ func runImageUpdateCheck() int {
 				newVer = newVer[len(newVer)-19:]
 			}
 
-			// Get image size
-			sizeMB := float64(imgInspect.Size) / 1024 / 1024
-			sizeText := fmt.Sprintf("%.1f MB", sizeMB)
-			if sizeMB > 1024 {
-				sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+			// Get image size (unknown in lightweight/no-pull mode)
+			var sizeText string
+			if lightweight {
+				sizeText = "—"
+			} else {
+				sizeMB := float64(imgSize) / 1024 / 1024
+				sizeText = fmt.Sprintf("%.1f MB", sizeMB)
+				if sizeMB > 1024 {
+					sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+				}
 			}
 
 			projectSet := make(map[string]bool)
@@ -3782,29 +3849,31 @@ func runImageUpdateCheck() int {
 
 			autoUpdated := []string{}
 			autoErrors := []string{}
-			for _, c := range containers {
-				if !autoUpdateContainers[c.name] {
-					continue
-				}
-				var recErr error
-				if c.project != "" {
-					// Compose container: use docker compose up (respects service name)
-					_, composeFile, resolveErr := resolveComposeFile(c.project)
-					if resolveErr != nil {
-						recErr = resolveErr
-					} else {
-						out, err := runComposeCmd(5*time.Minute, composeFile, "up", "-d", "--pull", "always", "--no-deps", c.service)
-						if err != nil {
-							recErr = fmt.Errorf("compose up failed: %s", out)
-						}
+			if !lightweight {
+				for _, c := range containers {
+					if !autoUpdateContainers[c.name] {
+						continue
 					}
-				} else {
-					recErr = recreateContainer(c.name)
-				}
-				if recErr == nil {
-					autoUpdated = append(autoUpdated, c.name)
-				} else {
-					autoErrors = append(autoErrors, c.name+": "+recErr.Error())
+					var recErr error
+					if c.project != "" {
+						// Compose container: use docker compose up (respects service name)
+						_, composeFile, resolveErr := resolveComposeFile(c.project)
+						if resolveErr != nil {
+							recErr = resolveErr
+						} else {
+							out, err := runComposeCmd(5*time.Minute, composeFile, "up", "-d", "--pull", "always", "--no-deps", c.service)
+							if err != nil {
+								recErr = fmt.Errorf("compose up failed: %s", out)
+							}
+						}
+					} else {
+						recErr = recreateContainer(c.name)
+					}
+					if recErr == nil {
+						autoUpdated = append(autoUpdated, c.name)
+					} else {
+						autoErrors = append(autoErrors, c.name+": "+recErr.Error())
+					}
 				}
 			}
 
@@ -4197,27 +4266,23 @@ func addTrackedImage(chatID int64, imageTag string) {
 	ctx := context.Background()
 	loadingID := sendLoading(chatID, getText("checking_image", imageTag))
 
-	reader, err := cli.ImagePull(ctx, imageTag, pullOpts())
+	digest, err := getRemoteImageDigest(ctx, imageTag)
 	if err != nil {
 		deleteMsg(chatID, loadingID)
 		sendMessageWithClose(chatID, getText("error_checking_image", err.Error()))
 		return
 	}
-	io.Copy(io.Discard, reader)
-	reader.Close()
 
-	imgInspect, _, err := cli.ImageInspectWithRaw(ctx, imageTag)
-	if err != nil {
-		deleteMsg(chatID, loadingID)
-		sendMessageWithClose(chatID, getText("error_inspecting_image", err.Error()))
-		return
-	}
-
-	trackedImages[imageTag] = imgInspect.ID
+	trackedImages[imageTag] = digest
 	saveConfig()
 
+	shortDigest := digest
+	if len(shortDigest) > 19 {
+		shortDigest = shortDigest[:19]
+	}
+
 	deleteMsg(chatID, loadingID)
-	sendMessageWithClose(chatID, getText("image_tracking_added", imageTag, imgInspect.ID[:19]))
+	sendMessageWithClose(chatID, getText("image_tracking_added", imageTag, shortDigest))
 	go handleTrackImage(chatID)
 }
 
@@ -4232,25 +4297,18 @@ func checkTrackedImages(chatID int64, manual bool) {
 	ctx := context.Background()
 	found := 0
 
-	for imageTag, oldID := range trackedImages {
-		reader, err := cli.ImagePull(ctx, imageTag, pullOpts())
-		if err != nil {
-			continue
-		}
-		io.Copy(io.Discard, reader)
-		reader.Close()
-
-		imgInspect, _, err := cli.ImageInspectWithRaw(ctx, imageTag)
-		if err != nil || imgInspect.ID == oldID {
+	for imageTag, oldDigest := range trackedImages {
+		newDigest, err := getRemoteImageDigest(ctx, imageTag)
+		if err != nil || newDigest == oldDigest {
 			continue
 		}
 
 		found++
-		trackedImages[imageTag] = imgInspect.ID
+		trackedImages[imageTag] = newDigest
 		saveConfig()
 
-		oldVer := oldID
-		newVer := imgInspect.ID
+		oldVer := oldDigest
+		newVer := newDigest
 		if len(oldVer) > 19 {
 			oldVer = oldVer[len(oldVer)-19:]
 		}
@@ -4258,10 +4316,21 @@ func checkTrackedImages(chatID int64, manual bool) {
 			newVer = newVer[len(newVer)-19:]
 		}
 
-		sizeMB := float64(imgInspect.Size) / 1024 / 1024
-		sizeText := fmt.Sprintf("%.1f MB", sizeMB)
-		if sizeMB > 1024 {
-			sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+		// Only pre-pull (and report a real size) when auto-check is enabled.
+		// With ENABLE_AUTO_CHECK=false we just notify, without downloading.
+		sizeText := "—"
+		if enableAutoCheck {
+			if reader, perr := cli.ImagePull(ctx, imageTag, pullOpts()); perr == nil {
+				io.Copy(io.Discard, reader)
+				reader.Close()
+				if imgInspect, _, ierr := cli.ImageInspectWithRaw(ctx, imageTag); ierr == nil {
+					sizeMB := float64(imgInspect.Size) / 1024 / 1024
+					sizeText = fmt.Sprintf("%.1f MB", sizeMB)
+					if sizeMB > 1024 {
+						sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
+					}
+				}
+			}
 		}
 
 		msgText := getText("tracked_image_update_available", imageTag, oldVer, newVer, sizeText)

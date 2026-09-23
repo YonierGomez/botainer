@@ -326,7 +326,16 @@ NOTIFY_CHAT_ID=123456789
 # Update check interval (hours, default: 6)
 CHECK_UPDATES_INTERVAL=6
 
-# Enable/disable automatic update checks (default: true)
+# Enable/disable automatic pulling during update checks (default: true).
+# When true, the periodic check (and manual "check for updates") pulls each
+# image to compare digests, and auto-recreates containers you enabled via
+# the auto-update selector.
+# When false, Botainer NEVER pulls automatically: the periodic check instead
+# queries the registry's manifest digest directly (no image layers
+# downloaded) and just notifies you that a new version exists — for running
+# containers, tracked images (/trackimage) and tracked Helm charts
+# (/trackchart, which never pulls regardless of this flag). You can still
+# update manually from the notification buttons.
 ENABLE_AUTO_CHECK=true
 
 # Enable/disable startup notification (default: true)
