@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.9.1"                      // v2.9.1: fix update_recreate button to actually pull the new image (was skipping the pull since v2.8.0's lightweight check)
+	botVersion     = "2.9.2"                      // v2.9.2: progress bar for /trackimage's manual "check now" pull too
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -4419,6 +4419,15 @@ func checkTrackedImages(chatID int64, manual bool) {
 	ctx := context.Background()
 	found := 0
 
+	// When triggered manually (the "🔄 Check now" button) and auto-check is
+	// enabled, show a live progress bar for each pull; otherwise (periodic
+	// background run, or lightweight/no-pull mode) there's no message to
+	// edit, so pulls (if any) stay silent.
+	progressID := 0
+	if manual && enableAutoCheck {
+		progressID = sendLoading(chatID, getText("checking_tracked_images"))
+	}
+
 	for imageTag, oldDigest := range trackedImages {
 		newDigest, err := getRemoteImageDigest(ctx, imageTag)
 		if err != nil || newDigest == oldDigest {
@@ -4442,15 +4451,9 @@ func checkTrackedImages(chatID int64, manual bool) {
 		// With ENABLE_AUTO_CHECK=false we just notify, without downloading.
 		sizeText := "—"
 		if enableAutoCheck {
-			if reader, perr := cli.ImagePull(ctx, imageTag, pullOpts()); perr == nil {
-				io.Copy(io.Discard, reader)
-				reader.Close()
+			if perr := pullImageWithProgress(ctx, imageTag, chatID, progressID); perr == nil {
 				if imgInspect, _, ierr := cli.ImageInspectWithRaw(ctx, imageTag); ierr == nil {
-					sizeMB := float64(imgInspect.Size) / 1024 / 1024
-					sizeText = fmt.Sprintf("%.1f MB", sizeMB)
-					if sizeMB > 1024 {
-						sizeText = fmt.Sprintf("%.2f GB", sizeMB/1024)
-					}
+					sizeText = formatSize(imgInspect.Size)
 				}
 			}
 		}
@@ -4465,6 +4468,10 @@ func checkTrackedImages(chatID int64, manual bool) {
 			),
 		)
 		bot.Send(m)
+	}
+
+	if progressID != 0 {
+		deleteMsg(chatID, progressID)
 	}
 
 	if found == 0 && manual {
