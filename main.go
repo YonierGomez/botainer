@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.8.0"                      // v2.8.0: notify about tracked/running image updates without auto-pulling when ENABLE_AUTO_CHECK=false
+	botVersion     = "2.9.0"                      // v2.9.0: live progress bar while pulling images for interactive update/rollback/deploy commands
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -163,6 +163,131 @@ func normalizeDockerArch(arch string) string {
 // codebase. It always pins Platform to the local daemon's architecture (detected at
 // startup by detectDaemonPlatform) so automatic/manual image pulls can never fetch a
 // manifest for the wrong architecture. See detectDaemonPlatform for the full rationale.
+// pullImageWithProgress pulls imageTag via the Docker API and, if chatID and
+// messageID are non-zero, live-edits that Telegram message with a text
+// progress bar built from the pull's streamed layer progress events. With
+// chatID/messageID == 0 (background/no UI context) it just drains the pull
+// like a plain io.Copy(io.Discard, reader).
+func pullImageWithProgress(ctx context.Context, imageTag string, chatID int64, messageID int) error {
+	reader, err := cli.ImagePull(ctx, imageTag, pullOpts())
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	if chatID == 0 || messageID == 0 {
+		_, err := io.Copy(io.Discard, reader)
+		return err
+	}
+
+	type layerState struct {
+		current, total int64
+		done           bool
+	}
+	layers := make(map[string]*layerState)
+	order := []string{}
+
+	lastEdit := time.Time{}
+	lastText := ""
+
+	decoder := json.NewDecoder(reader)
+	for {
+		var evt struct {
+			Status         string `json:"status"`
+			ID             string `json:"id"`
+			ProgressDetail struct {
+				Current int64 `json:"current"`
+				Total   int64 `json:"total"`
+			} `json:"progressDetail"`
+			Error string `json:"error"`
+		}
+		if derr := decoder.Decode(&evt); derr != nil {
+			break // io.EOF (normal end) or a stray/partial line — stop reading either way
+		}
+		if evt.Error != "" {
+			return fmt.Errorf("%s", evt.Error)
+		}
+		if evt.ID == "" {
+			continue
+		}
+
+		ls, ok := layers[evt.ID]
+		if !ok {
+			ls = &layerState{}
+			layers[evt.ID] = ls
+			order = append(order, evt.ID)
+		}
+		if evt.ProgressDetail.Total > 0 {
+			ls.current = evt.ProgressDetail.Current
+			ls.total = evt.ProgressDetail.Total
+		}
+		if evt.Status == "Pull complete" || evt.Status == "Already exists" {
+			ls.done = true
+			if ls.total > 0 {
+				ls.current = ls.total
+			}
+		}
+
+		if time.Since(lastEdit) < 1200*time.Millisecond {
+			continue
+		}
+
+		var curSum, totalSum int64
+		doneLayers := 0
+		for _, id := range order {
+			l := layers[id]
+			curSum += l.current
+			totalSum += l.total
+			if l.done {
+				doneLayers++
+			}
+		}
+
+		percent := 0
+		if totalSum > 0 {
+			percent = int(float64(curSum) / float64(totalSum) * 100)
+			if percent > 100 {
+				percent = 100
+			}
+		}
+
+		text := getText("image_pull_progress", imageTag, progressBar(percent), percent,
+			formatSize(curSum), formatSize(totalSum), doneLayers, len(order))
+
+		if text != lastText {
+			edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+			edit.ParseMode = "Markdown"
+			bot.Send(edit)
+			lastText = text
+			lastEdit = time.Now()
+		}
+	}
+
+	return nil
+}
+
+// progressBar renders a simple block-based text progress bar, e.g. "[████░░░░] ".
+func progressBar(percent int) string {
+	const width = 12
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	filled := percent * width / 100
+	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", width-filled) + "]"
+}
+
+// formatSize renders a byte count as a human-readable MB/GB string.
+func formatSize(bytes int64) string {
+	sizeMB := float64(bytes) / 1024 / 1024
+	if sizeMB > 1024 {
+		return fmt.Sprintf("%.2f GB", sizeMB/1024)
+	}
+	return fmt.Sprintf("%.1f MB", sizeMB)
+}
+
 func pullOpts() image.PullOptions {
 	return image.PullOptions{Platform: daemonPullPlatform}
 }
@@ -1985,14 +2110,10 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					out = getText("error_inspecting_container", err.Error())
 				} else {
 					// Pull new image first using Docker API
-					pullResp, pullErr := cli.ImagePull(ctx, newTag, pullOpts())
+					pullErr := pullImageWithProgress(ctx, newTag, chatID, query.Message.MessageID)
 					if pullErr != nil {
 						out = getText("error_downloading_image_short", pullErr.Error())
 					} else {
-						// Consume the pull response to ensure it completes
-						io.Copy(io.Discard, pullResp)
-						pullResp.Close()
-
 						// Stop and remove old container
 						cli.ContainerStop(ctx, containerName, container.StopOptions{})
 						cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
@@ -2765,7 +2886,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 	case "recreate":
 		editToLoading(chatID, query.Message.MessageID, fmt.Sprintf("Recreando *%s*...", target))
-		if err2 := recreateContainer(target); err2 != nil {
+		if err2 := recreateContainer(target, chatID, query.Message.MessageID); err2 != nil {
 			out = "❌ Error: " + err2.Error()
 		} else {
 			out = getText("recreated_with_new_image_alt", target)
@@ -2986,7 +3107,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 		entry := history[idx]
 		editToLoading(chatID, query.Message.MessageID, getText("rolling_back_to", containerName, entry.Image))
 		go func() {
-			if err := doRollback(containerName, entry); err != nil {
+			if err := doRollback(containerName, entry, chatID, query.Message.MessageID); err != nil {
 				sendMessageWithClose(chatID, getText("rollback_error", err.Error()))
 			} else {
 				sendMessageWithClose(chatID, getText("rollback_reverted", containerName, entry.Image))
@@ -3044,8 +3165,9 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 			return
 		}
 		editToLoading(chatID, query.Message.MessageID, getText("deploying_template", tpl.Name))
+		msgID := query.Message.MessageID
 		go func() {
-			if err := deployTemplate(tpl); err != nil {
+			if err := deployTemplate(tpl, chatID, msgID); err != nil {
 				sendMessageWithClose(chatID, getText("template_deploy_error", err.Error()))
 			} else {
 				sendMessageWithClose(chatID, getText("template_deployed", tpl.Name))
@@ -3867,7 +3989,7 @@ func runImageUpdateCheck() int {
 							}
 						}
 					} else {
-						recErr = recreateContainer(c.name)
+						recErr = recreateContainer(c.name, 0, 0)
 					}
 					if recErr == nil {
 						autoUpdated = append(autoUpdated, c.name)
@@ -4626,7 +4748,7 @@ func handleStats(chatID int64) {
 	bot.Send(msg)
 }
 
-func recreateContainer(name string) error {
+func recreateContainer(name string, chatID int64, messageID int) error {
 	ctx := context.Background()
 	inspect, err := cli.ContainerInspect(ctx, name)
 	if err != nil {
@@ -4634,12 +4756,9 @@ func recreateContainer(name string) error {
 	}
 
 	imageTag := inspect.Config.Image
-	reader, err := cli.ImagePull(ctx, imageTag, pullOpts())
-	if err != nil {
+	if err := pullImageWithProgress(ctx, imageTag, chatID, messageID); err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
-	io.Copy(io.Discard, reader)
-	reader.Close()
 
 	return recreateWithNewImage(name)
 }
@@ -5917,7 +6036,7 @@ func saveRollbackEntry(containerName, imageTag, imageID string) {
 	writeConfigLocked()
 }
 
-func doRollback(containerName string, entry RollbackEntry) error {
+func doRollback(containerName string, entry RollbackEntry, chatID int64, messageID int) error {
 	ctx := context.Background()
 	inspect, err := cli.ContainerInspect(ctx, containerName)
 	if err != nil {
@@ -5925,12 +6044,9 @@ func doRollback(containerName string, entry RollbackEntry) error {
 	}
 
 	// Pull the old image
-	reader, err := cli.ImagePull(ctx, entry.Image, pullOpts())
-	if err != nil {
+	if err := pullImageWithProgress(ctx, entry.Image, chatID, messageID); err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
-	io.Copy(io.Discard, reader)
-	reader.Close()
 
 	wasRunning := inspect.State.Running
 	timeout := 10
@@ -6058,16 +6174,13 @@ func saveTemplate(containerName string, userID int64) error {
 	return nil
 }
 
-func deployTemplate(tpl ContainerTemplate) error {
+func deployTemplate(tpl ContainerTemplate, chatID int64, messageID int) error {
 	ctx := context.Background()
 
 	// Pull image
-	reader, err := cli.ImagePull(ctx, tpl.Image, pullOpts())
-	if err != nil {
+	if err := pullImageWithProgress(ctx, tpl.Image, chatID, messageID); err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
-	io.Copy(io.Discard, reader)
-	reader.Close()
 
 	cfg := &container.Config{
 		Image:  tpl.Image,
