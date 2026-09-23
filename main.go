@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.9.0"                      // v2.9.0: live progress bar while pulling images for interactive update/rollback/deploy commands
+	botVersion     = "2.9.1"                      // v2.9.1: fix update_recreate button to actually pull the new image (was skipping the pull since v2.8.0's lightweight check)
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -2691,7 +2691,7 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 	case "update_recreate":
 		editToLoading(chatID, query.Message.MessageID, getText("recreating_with_new_image", target))
-		err = recreateWithNewImage(target)
+		err = recreateContainer(target, chatID, query.Message.MessageID)
 		if err == nil {
 			out = getText("recreated_with_new_image", target)
 		}
