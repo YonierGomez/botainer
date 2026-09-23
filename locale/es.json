@@ -104,6 +104,7 @@
   "no_favorites": "No tienes favoritos.\nUsa /addfav para agregar.",
   "no_command_history": "No hay historial de comandos",
   "no_compose_projects": "No se encontraron proyectos Docker Compose",
+  "image_pull_progress": "📥 *Descargando imagen*\n`$1`\n\n$2 $3%\n📦 $4 / $5 · capas $6/$7",
   "no_tracked_images": "📋 No hay imágenes trackeadas",
   "container_not_found": "❌ Contenedor *$1* no encontrado",
   "already_in_favorites": "⭐ *$1* ya está en favoritos",
