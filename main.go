@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	botVersion     = "2.9.2"                      // v2.9.2: progress bar for /trackimage's manual "check now" pull too
+	botVersion     = "2.9.2"                      // v2.9.2: progress bar for /trackimage's manual check-now pull too
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
