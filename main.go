@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +35,7 @@ import (
 )
 
 const (
-	botVersion     = "2.9.2"                      // v2.9.2: progress bar for /trackimage's manual check-now pull too
+	botVersion     = "2.11.0"                     // v2.11.0: show app version labels next to before/now hashes in update notifications, generic registry auth discovery (lscr.io, etc.)
 	newsChannelURL = "https://t.me/botainer_news" // Canal de novedades
 	configFile     = "/data/config.json"          // Persistence file
 )
@@ -286,6 +287,211 @@ func formatSize(bytes int64) string {
 		return fmt.Sprintf("%.2f GB", sizeMB/1024)
 	}
 	return fmt.Sprintf("%.1f MB", sizeMB)
+}
+
+// versionFromLabels tries a handful of common "app version" label keys used
+// by container images (OCI standard, label-schema, and a plain "version"
+// fallback) and returns the first non-empty match, truncated for display.
+func versionFromLabels(labels map[string]string) string {
+	if labels == nil {
+		return ""
+	}
+	for _, key := range []string{
+		"org.opencontainers.image.version",
+		"org.label-schema.version",
+		"version",
+	} {
+		if v := strings.TrimSpace(labels[key]); v != "" {
+			if len(v) > 40 {
+				v = v[:40] + "…"
+			}
+			return v
+		}
+	}
+	return ""
+}
+
+// localImageVersion reads the version label off an already-local image
+// (by ID or tag) — free, no network call.
+func localImageVersion(ctx context.Context, imageRef string) string {
+	if imageRef == "" {
+		return ""
+	}
+	imgInspect, _, err := cli.ImageInspectWithRaw(ctx, imageRef)
+	if err != nil || imgInspect.Config == nil {
+		return ""
+	}
+	return versionFromLabels(imgInspect.Config.Labels)
+}
+
+// fetchManifestRaw fetches a manifest (by tag or digest reference) from the
+// registry's HTTP API v2, returning its Content-Type and raw JSON body.
+func fetchManifestRaw(registry, repo, reference, token string) (string, []byte, error) {
+	url := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registry, repo, reference)
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("Accept", strings.Join([]string{
+		"application/vnd.docker.distribution.manifest.v2+json",
+		"application/vnd.docker.distribution.manifest.list.v2+json",
+		"application/vnd.oci.image.manifest.v1+json",
+		"application/vnd.oci.image.index.v1+json",
+	}, ","))
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", nil, fmt.Errorf("registry returned %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, err
+	}
+	return resp.Header.Get("Content-Type"), body, nil
+}
+
+// fetchBlob downloads a small registry blob (used here only for tiny JSON
+// blobs like the image config, never actual image layers).
+func fetchBlob(registry, repo, digest, token string) ([]byte, error) {
+	url := fmt.Sprintf("https://%s/v2/%s/blobs/%s", registry, repo, digest)
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("registry returned %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// fetchRemoteImageVersion resolves imageTag's ("name:tag") version label
+// directly from the registry, without pulling any image layers — only the
+// tiny manifest + config JSON blobs. Returns "" if unavailable (unsupported
+// registry, network error, or the image simply has no version label).
+func fetchRemoteImageVersion(imageTag string) string {
+	parts := strings.Split(imageTag, ":")
+	if len(parts) != 2 {
+		return ""
+	}
+	return fetchRemoteImageVersionAtRef(parts[0], parts[1])
+}
+
+// fetchRemoteImageVersionAtRef is like fetchRemoteImageVersion but takes an
+// explicit reference, which can be a tag ("latest") or a digest
+// ("sha256:..."), letting callers look up the version of a specific
+// historical digest (e.g. the previously-tracked one) as well as the
+// current tag.
+func fetchRemoteImageVersionAtRef(imageName, reference string) string {
+	registry, repo := parseRegistryAndRepo(imageName)
+
+	cacheKey := registry + ":" + repo
+	registryTokenCacheMutex.Lock()
+	token, cached := registryTokenCache[cacheKey]
+	registryTokenCacheMutex.Unlock()
+	if !cached {
+		var err error
+		token, err = fetchRegistryToken(registry, repo)
+		if err != nil {
+			return ""
+		}
+		registryTokenCacheMutex.Lock()
+		registryTokenCache[cacheKey] = token
+		registryTokenCacheMutex.Unlock()
+	}
+
+	_, body, err := fetchManifestRaw(registry, repo, reference, token)
+	if err != nil {
+		return ""
+	}
+
+	var parsed struct {
+		Manifests []struct {
+			Digest   string `json:"digest"`
+			Platform struct {
+				Architecture string `json:"architecture"`
+				OS           string `json:"os"`
+				Variant      string `json:"variant"`
+			} `json:"platform"`
+		} `json:"manifests"`
+		Config struct {
+			Digest string `json:"digest"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+
+	configDigest := parsed.Config.Digest
+	if configDigest == "" && len(parsed.Manifests) > 0 {
+		// Multi-arch manifest list/index: pick the entry matching the
+		// daemon's own platform, falling back to the first one.
+		wantOS, wantArch, wantVariant := "linux", "amd64", ""
+		if daemonPullPlatform != "" {
+			pp := strings.Split(daemonPullPlatform, "/")
+			if len(pp) >= 2 {
+				wantOS, wantArch = pp[0], pp[1]
+			}
+			if len(pp) >= 3 {
+				wantVariant = pp[2]
+			}
+		}
+		chosen := parsed.Manifests[0].Digest
+		for _, m := range parsed.Manifests {
+			if m.Platform.OS == wantOS && m.Platform.Architecture == wantArch &&
+				(wantVariant == "" || m.Platform.Variant == wantVariant) {
+				chosen = m.Digest
+				break
+			}
+		}
+		_, subBody, serr := fetchManifestRaw(registry, repo, chosen, token)
+		if serr != nil {
+			return ""
+		}
+		var sub struct {
+			Config struct {
+				Digest string `json:"digest"`
+			} `json:"config"`
+		}
+		if err := json.Unmarshal(subBody, &sub); err != nil {
+			return ""
+		}
+		configDigest = sub.Config.Digest
+	}
+
+	if configDigest == "" {
+		return ""
+	}
+
+	blob, err := fetchBlob(registry, repo, configDigest, token)
+	if err != nil {
+		return ""
+	}
+
+	var cfg struct {
+		Config struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(blob, &cfg); err != nil {
+		return ""
+	}
+	return versionFromLabels(cfg.Config.Labels)
 }
 
 func pullOpts() image.PullOptions {
@@ -1889,12 +2095,17 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 				// Perform update with retry
 				updateErr := retryWithBackoff(func() error {
 					if project != "" {
-						// Compose update - pull first, then recreate (mirrors: docker compose pull && docker compose up -d)
-						log.Printf("[updateall] Running: docker compose -f %s pull %s", composeFile, serviceName)
-						pullOut, pullErr := runComposeCmd(5*time.Minute, composeFile, "pull", serviceName)
-						if pullErr != nil {
-							return fmt.Errorf("compose pull failed: %s", pullOut)
+						// Compose update - pull via the Docker API first (progress
+						// bar on the shared progress message), then recreate with
+						// plain "up -d --no-deps" (mirrors: docker compose pull &&
+						// docker compose up -d)
+						log.Printf("[updateall] Pulling %s for service %s", containerUpd.NewImage, serviceName)
+						if pullErr := pullImageWithProgress(ctx, containerUpd.NewImage, chatID, sentMsg.MessageID); pullErr != nil {
+							return fmt.Errorf("pull failed: %w", pullErr)
 						}
+						edit := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, getText("updating_progress", idx+1, totalContainers, containerName))
+						edit.ParseMode = "Markdown"
+						bot.Send(edit)
 						log.Printf("[updateall] Running: docker compose -f %s up -d --no-deps %s", composeFile, serviceName)
 						output, err := runComposeCmd(3*time.Minute, composeFile, "up", "-d", "--no-deps", serviceName)
 						if err != nil {
@@ -2074,15 +2285,18 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 					if sedErr != nil {
 						out = getText("error_editing_compose", sedErr.Error(), sedOut)
 					} else {
-						// Pull the new image first, then recreate (mirrors: docker compose pull && docker compose up -d)
-						pullOut, pullErr := runComposeCmd(5*time.Minute, composeFile, "pull", service)
+						// Pull the new image via the Docker API first (progress bar),
+						// then recreate with plain "up -d --no-deps" (mirrors:
+						// docker compose pull && docker compose up -d)
+						pullErr := pullImageWithProgress(ctx, newTag, chatID, query.Message.MessageID)
 						if pullErr != nil {
-							log.Printf("Compose pull error: %v\nOutput: %s", pullErr, pullOut)
-							out = getText("error_downloading_image", pullOut)
+							log.Printf("Pull error for %s: %v", newTag, pullErr)
+							out = getText("error_downloading_image", pullErr.Error())
 							if len(out) > 3800 {
 								out = out[:3800] + "\n...\n```"
 							}
 						} else {
+							editToLoading(chatID, query.Message.MessageID, getText("updating_to_tag", containerName, newTag))
 							upOut, upErr := runComposeCmd(3*time.Minute, composeFile, "up", "-d", "--no-deps", service)
 							if upErr != nil {
 								log.Printf("Compose up error: %v\nOutput: %s", upErr, upOut)
@@ -2738,28 +2952,27 @@ func handleCallback(query *tgbotapi.CallbackQuery) {
 
 		log.Printf("Updating service %s (container: %s) in project %s with file: %s", service, containerName, project, composeFile)
 
-		// Up -d with pull always and no-deps (timeout 5 minutos)
-		upOut, upErr := runComposeCmd(5*time.Minute, composeFile, "up", "-d", "--pull", "always", "--no-deps", service)
+		// Pull the current image via the Docker API first (shows a live
+		// progress bar on this message), then recreate with a plain
+		// "up -d --no-deps" — no need for "--pull always" anymore since the
+		// image is already fresh. If the pull fails (e.g. a locally built
+		// image with nothing to pull from a registry), fall back to
+		// "up -d --no-deps" anyway, which just uses whatever is cached.
+		if inspect, ierr := cli.ContainerInspect(ctx, containerName); ierr == nil && inspect.Config.Image != "" {
+			if perr := pullImageWithProgress(ctx, inspect.Config.Image, chatID, query.Message.MessageID); perr != nil {
+				log.Printf("Pull failed for %s (%s), will still try compose up with cached image: %v", service, inspect.Config.Image, perr)
+			}
+			editToLoading(chatID, query.Message.MessageID, getText("updating_named", service))
+		}
+
+		upOut, upErr := runComposeCmd(5*time.Minute, composeFile, "up", "-d", "--no-deps", service)
 		if upErr != nil {
 			log.Printf("Compose up error for %s: %v\nOutput: %s", service, upErr, upOut)
-
-			// Check if it's a local image (no pull needed)
-			isLocalImageError := strings.Contains(upOut, "pull access denied") ||
-				strings.Contains(upOut, "repository does not exist")
-
-			if isLocalImageError {
-				log.Printf("Local image detected for %s, retrying without pull", service)
-				// Retry without --pull for local images
-				upOut, upErr = runComposeCmd(3*time.Minute, composeFile, "up", "-d", service)
+			out = getText("error_updating", upOut)
+			if len(out) > 3800 {
+				out = out[:3800] + "\n...\n```"
 			}
-
-			if upErr != nil {
-				out = getText("error_updating", upOut)
-				if len(out) > 3800 {
-					out = out[:3800] + "\n...\n```"
-				}
-				break
-			}
+			break
 		}
 
 		log.Printf("Successfully updated service: %s", service)
@@ -3839,10 +4052,12 @@ func runImageUpdateCheck() int {
 			defer func() { <-semaphore }() // Release
 
 			inspect, _ := cli.ContainerInspect(ctx, ctrs[0].name)
-			localID := inspect.Image
+			localImageID := inspect.Image // true local Docker image ID, kept for version-label lookup even in lightweight mode
+			localID := localImageID
 
 			var newID string
 			var imgSize int64
+			var newLabels map[string]string
 			lightweight := !enableAutoCheck
 
 			if lightweight {
@@ -3866,6 +4081,9 @@ func runImageUpdateCheck() int {
 				imgInspect, _, _ := cli.ImageInspectWithRaw(ctx, imgTag)
 				newID = imgInspect.ID
 				imgSize = imgInspect.Size
+				if imgInspect.Config != nil {
+					newLabels = imgInspect.Config.Labels
+				}
 			}
 
 			// Check for digest-based update (existing logic)
@@ -3942,6 +4160,23 @@ func runImageUpdateCheck() int {
 			}
 			if len(newVer) > 19 {
 				newVer = newVer[len(newVer)-19:]
+			}
+
+			// Best-effort app version label next to the hash: the old image
+			// is always already local (free lookup); the new one comes from
+			// its just-fetched labels (full-pull mode) or a lightweight
+			// registry manifest/config fetch (no image layers) in no-pull mode.
+			if v := localImageVersion(ctx, localImageID); v != "" {
+				oldVer = fmt.Sprintf("%s (%s)", oldVer, v)
+			}
+			var newVerLabel string
+			if lightweight {
+				newVerLabel = fetchRemoteImageVersion(imgTag)
+			} else {
+				newVerLabel = versionFromLabels(newLabels)
+			}
+			if newVerLabel != "" {
+				newVer = fmt.Sprintf("%s (%s)", newVer, newVerLabel)
 			}
 
 			// Get image size (unknown in lightweight/no-pull mode)
@@ -4445,6 +4680,18 @@ func checkTrackedImages(chatID int64, manual bool) {
 		}
 		if len(newVer) > 19 {
 			newVer = newVer[len(newVer)-19:]
+		}
+
+		// Best-effort app version label next to the hash, resolved directly
+		// from the registry for both digests (tiny manifest/config JSON
+		// fetches, no image layers involved).
+		if imageName := strings.SplitN(imageTag, ":", 2)[0]; imageName != "" {
+			if v := fetchRemoteImageVersionAtRef(imageName, oldDigest); v != "" {
+				oldVer = fmt.Sprintf("%s (%s)", oldVer, v)
+			}
+		}
+		if v := fetchRemoteImageVersion(imageTag); v != "" {
+			newVer = fmt.Sprintf("%s (%s)", newVer, v)
 		}
 
 		// Only pre-pull (and report a real size) when auto-check is enabled.
@@ -6538,7 +6785,11 @@ func parseRegistryAndRepo(image string) (registry, repo string) {
 	return "registry-1.docker.io", image
 }
 
-// fetchRegistryToken gets a Bearer token for registry API access
+// fetchRegistryToken gets a Bearer token for registry API access. Docker Hub
+// and GHCR use a known auth endpoint directly; any other registry (lscr.io,
+// quay.io, etc.) is handled generically by discovering the realm/service via
+// the standard WWW-Authenticate challenge returned by the registry's /v2/
+// endpoint (many of them, like lscr.io, simply delegate auth to GHCR).
 func fetchRegistryToken(registry, repo string) (string, error) {
 	var authURL string
 
@@ -6547,8 +6798,14 @@ func fetchRegistryToken(registry, repo string) (string, error) {
 	} else if registry == "ghcr.io" {
 		authURL = fmt.Sprintf("https://ghcr.io/token?scope=repository:%s:pull", repo)
 	} else {
-		// For other registries, try to discover auth endpoint
-		return "", fmt.Errorf("unsupported registry: %s", registry)
+		realm, service, err := discoverRegistryAuth(registry)
+		if err != nil {
+			return "", fmt.Errorf("unsupported registry: %s (%w)", registry, err)
+		}
+		authURL = realm + "?scope=" + url.QueryEscape("repository:"+repo+":pull")
+		if service != "" {
+			authURL += "&service=" + url.QueryEscape(service)
+		}
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -6559,13 +6816,48 @@ func fetchRegistryToken(registry, repo string) (string, error) {
 	defer resp.Body.Close()
 
 	var result struct {
-		Token string `json:"token"`
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
+	if result.Token != "" {
+		return result.Token, nil
+	}
+	return result.AccessToken, nil
+}
 
-	return result.Token, nil
+// discoverRegistryAuth hits the registry's /v2/ endpoint (expected to reply
+// 401 with a "WWW-Authenticate: Bearer realm=\"...\",service=\"...\"" header,
+// per the OCI distribution spec) and extracts the realm/service to use for
+// fetching a pull token.
+func discoverRegistryAuth(registry string) (realm, service string, err error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("https://%s/v2/", registry))
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	challenge := resp.Header.Get("Www-Authenticate")
+	if challenge == "" {
+		return "", "", fmt.Errorf("no auth challenge from registry (status %d)", resp.StatusCode)
+	}
+
+	challenge = strings.TrimPrefix(challenge, "Bearer ")
+	for _, part := range strings.Split(challenge, ",") {
+		part = strings.TrimSpace(part)
+		if v, ok := strings.CutPrefix(part, "realm="); ok {
+			realm = strings.Trim(v, `"`)
+		} else if v, ok := strings.CutPrefix(part, "service="); ok {
+			service = strings.Trim(v, `"`)
+		}
+	}
+	if realm == "" {
+		return "", "", fmt.Errorf("could not parse auth challenge: %s", challenge)
+	}
+	return realm, service, nil
 }
 
 // listRegistryTags fetches available tags from registry
